@@ -1,3 +1,56 @@
+<<<<<<< HEAD
+# Secrets and environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Node / frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.turbo/
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# Python / backend
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+backend/.venv/
+backend/venv/
+backend/env/
+backend/__pycache__/
+
+# Build and coverage outputs
+coverage/
+htmlcov/
+.coverage
+.coverage.*
+dist/
+build/
+*.egg-info/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Generated files and local artifacts
+files/
+*.log
+=======
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -216,3 +269,4 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+>>>>>>> 53d0b8e34556a0023d450b02b208e706f290bc8e
