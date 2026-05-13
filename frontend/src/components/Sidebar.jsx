@@ -1,14 +1,16 @@
-import { Link } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 
 export default function Sidebar() {
   const navItems = [
-    { label: 'Workspace', icon: '📊' },
-    { label: 'Documents', icon: '📄' },
-    { label: 'Deadlines', icon: '📅' },
-    { label: 'Clients', icon: '👥' },
-    { label: 'Products', icon: '📦' },
-    { label: 'Profile', icon: '👤' },
-    { label: 'Settings', icon: '⚙️' },
+    { label: 'Home', path: '/dashboard' },
+    { label: 'Documents', path: '/dashboard/documents' },
+    { label: 'Deadlines', path: '/dashboard/deadlines' },
+    { label: 'Analytics', path: '/dashboard/analytics' },
+    { label: 'Chat', path: '/dashboard/chat' },
+    { label: 'Profile', path: '/dashboard/profile' },
+    { label: 'Clients', path: '/dashboard/clients' },
+    { label: 'Products', path: '/dashboard/products' },
+    { label: 'Settings', path: '/dashboard/settings' },
   ];
 
   return (
@@ -20,10 +22,14 @@ export default function Sidebar() {
 
       <nav className="sidebar-nav" aria-label="Dashboard navigation">
         {navItems.map((item) => (
-          <a key={item.label} href={`#${item.label.toLowerCase()}`} className="sidebar-link">
-            <span className="sidebar-icon">{item.icon}</span>
+          <NavLink
+            key={item.label}
+            to={item.path}
+            end={item.path === '/dashboard'}
+            className={({ isActive }) => `sidebar-link ${isActive ? 'sidebar-link--active' : ''}`}
+          >
             <span className="sidebar-label">{item.label}</span>
-          </a>
+          </NavLink>
         ))}
       </nav>
 
