@@ -30,11 +30,11 @@ export function DashboardLayout({ children, activeTab, onTabChange, userName, us
       <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
         {/* Logo */}
         <div className="h-16 flex items-center px-6 border-b border-gray-200">
-          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg flex items-center justify-center">
               <FileText className="w-5 h-5 text-white" />
             </div>
-            <span className="font-semibold text-lg">CompliancePro</span>
+            <span className="font-semibold text-lg">Asta</span>
           </div>
         </div>
 

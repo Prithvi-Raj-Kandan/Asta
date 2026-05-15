@@ -129,36 +129,15 @@ export function SalesPage() {
   };
 
   const totalSales = filteredSales.reduce((sum, sale) => sum + sale.totalAmount, 0);
-  const totalCGST = filteredSales.reduce((sum, sale) => sum + sale.cgst, 0);
-  const totalSGST = filteredSales.reduce((sum, sale) => sum + sale.sgst, 0);
-  const totalIGST = filteredSales.reduce((sum, sale) => sum + sale.igst, 0);
 
   return (
     <div className="p-6 space-y-6">
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
           <CardContent className="pt-6">
             <div className="text-sm text-gray-600 mb-1">Total Sales</div>
             <div className="text-2xl font-bold text-gray-900">₹{totalSales.toLocaleString()}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-sm text-gray-600 mb-1">CGST Collected</div>
-            <div className="text-2xl font-bold text-gray-900">₹{totalCGST.toLocaleString()}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-sm text-gray-600 mb-1">SGST Collected</div>
-            <div className="text-2xl font-bold text-gray-900">₹{totalSGST.toLocaleString()}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-sm text-gray-600 mb-1">IGST Collected</div>
-            <div className="text-2xl font-bold text-gray-900">₹{totalIGST.toLocaleString()}</div>
           </CardContent>
         </Card>
       </div>
@@ -211,9 +190,7 @@ export function SalesPage() {
                   <TableHead>Items</TableHead>
                   <TableHead className="text-right">Qty</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="text-right">CGST</TableHead>
-                  <TableHead className="text-right">SGST</TableHead>
-                  <TableHead className="text-right">IGST</TableHead>
+                  {/* CGST/SGST/IGST columns removed */}
                   <TableHead className="text-right">Total</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -229,9 +206,7 @@ export function SalesPage() {
                     <TableCell>{sale.items}</TableCell>
                     <TableCell className="text-right">{sale.quantity}</TableCell>
                     <TableCell className="text-right">₹{sale.amount.toLocaleString()}</TableCell>
-                    <TableCell className="text-right">₹{sale.cgst.toLocaleString()}</TableCell>
-                    <TableCell className="text-right">₹{sale.sgst.toLocaleString()}</TableCell>
-                    <TableCell className="text-right">₹{sale.igst.toLocaleString()}</TableCell>
+                    {/* Tax columns removed */}
                     <TableCell className="text-right font-semibold">₹{sale.totalAmount.toLocaleString()}</TableCell>
                     <TableCell>{getStatusBadge(sale.paymentStatus)}</TableCell>
                     <TableCell className="text-right">

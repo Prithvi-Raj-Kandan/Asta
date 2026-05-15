@@ -17,7 +17,7 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
             <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg flex items-center justify-center">
               <FileText className="w-6 h-6 text-white" />
             </div>
-            <span className="text-xl font-bold">CompliancePro</span>
+            <span className="text-xl font-bold">Asta</span>
           </div>
           <div className="flex items-center gap-4">
             <Button variant="ghost" onClick={onLogin}>Login</Button>
@@ -119,7 +119,7 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
       <section className="bg-gradient-to-r from-blue-600 to-purple-600 text-white py-20">
         <div className="container mx-auto px-6">
           <div className="max-w-3xl mx-auto text-center">
-            <h2 className="text-3xl font-bold mb-6">Why SMEs Choose CompliancePro</h2>
+            <h2 className="text-3xl font-bold mb-6">Why SMEs Choose Asta</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-12">
               <div>
                 <div className="text-4xl font-bold mb-2">85%</div>
@@ -144,8 +144,8 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
           <h2 className="text-3xl font-bold text-gray-900 mb-4">
             Ready to Simplify Your Compliance?
           </h2>
-          <p className="text-lg text-gray-600 mb-8">
-            Join hundreds of SMEs who trust CompliancePro for their compliance needs.
+            <p className="text-lg text-gray-600 mb-8">
+            Join hundreds of SMEs who trust Asta for their compliance needs.
           </p>
           <Button size="lg" onClick={onGetStarted}>
             Start Your Free Trial
@@ -157,7 +157,7 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
       {/* Footer */}
       <footer className="border-t border-gray-200 bg-white py-8">
         <div className="container mx-auto px-6 text-center text-gray-600">
-          <p>&copy; 2026 CompliancePro. All rights reserved.</p>
+          <p>&copy; 2026 Asta. All rights reserved.</p>
         </div>
       </footer>
     </div>
