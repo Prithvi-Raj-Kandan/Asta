@@ -1,28 +1,43 @@
 import { ReactNode } from 'react';
-import { FileText, LayoutDashboard, Upload, Calendar, BarChart3, MessageSquare, Settings, Bell, ShoppingCart, ShoppingBag, Receipt, User } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { FileText, LayoutDashboard, Upload, Calendar, BarChart3, MessageSquare, Settings, Bell, ShoppingCart, ShoppingBag, Receipt, User, LogOut } from 'lucide-react';
 import { Button } from './ui/button';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { Badge } from './ui/badge';
 
 interface DashboardLayoutProps {
   children: ReactNode;
-  activeTab: string;
-  onTabChange: (tab: string) => void;
   userName: string;
   userEmail: string;
 }
 
-export function DashboardLayout({ children, activeTab, onTabChange, userName, userEmail }: DashboardLayoutProps) {
+export function DashboardLayout({ children, userName, userEmail }: DashboardLayoutProps) {
+  const location = useLocation();
+  const navigate = useNavigate();
+
   const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'sales', label: 'Sales', icon: ShoppingCart },
-    { id: 'purchases', label: 'Purchases', icon: ShoppingBag },
-    { id: 'invoices', label: 'Invoices', icon: Receipt },
-    { id: 'upload', label: 'Upload', icon: Upload },
-    { id: 'compliance', label: 'Compliance', icon: Calendar, badge: 3 },
-    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-    { id: 'ai-assistant', label: 'AI Assistant', icon: MessageSquare },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
+    { id: 'sales', label: 'Sales', icon: ShoppingCart, path: '/sales' },
+    { id: 'purchases', label: 'Purchases', icon: ShoppingBag, path: '/purchases' },
+    { id: 'invoices', label: 'Invoices', icon: Receipt, path: '/invoices' },
+    { id: 'upload', label: 'Upload', icon: Upload, path: '/upload' },
+    { id: 'compliance', label: 'Compliance', icon: Calendar, path: '/compliance', badge: 3 },
+    { id: 'analytics', label: 'Analytics', icon: BarChart3, path: '/analytics' },
+    { id: 'ai-assistant', label: 'AI Assistant', icon: MessageSquare, path: '/ai-assistant' },
   ];
+
+  const handleLogout = () => {
+    localStorage.removeItem('auth_token');
+    navigate('/');
+  };
+
+  const getPageTitle = () => {
+    const item = menuItems.find((item) => item.path === location.pathname);
+    if (item) return item.label;
+    if (location.pathname === '/profile') return 'Profile';
+    if (location.pathname === '/settings') return 'Settings';
+    return 'Dashboard';
+  };
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -42,11 +57,11 @@ export function DashboardLayout({ children, activeTab, onTabChange, userName, us
         <nav className="flex-1 px-3 py-4 space-y-1">
           {menuItems.map((item) => {
             const Icon = item.icon;
-            const isActive = activeTab === item.id;
+            const isActive = location.pathname === item.path;
             return (
               <button
                 key={item.id}
-                onClick={() => onTabChange(item.id)}
+                onClick={() => navigate(item.path)}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
                   isActive
                     ? 'bg-blue-50 text-blue-700'
@@ -68,9 +83,9 @@ export function DashboardLayout({ children, activeTab, onTabChange, userName, us
         {/* Settings & Profile Links */}
         <div className="px-3 py-2 space-y-1">
           <button
-            onClick={() => onTabChange('profile')}
+            onClick={() => navigate('/profile')}
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-              activeTab === 'profile'
+              location.pathname === '/profile'
                 ? 'bg-blue-50 text-blue-700'
                 : 'text-gray-700 hover:bg-gray-100'
             }`}
@@ -79,9 +94,9 @@ export function DashboardLayout({ children, activeTab, onTabChange, userName, us
             <span className="flex-1 text-left">Profile</span>
           </button>
           <button
-            onClick={() => onTabChange('settings')}
+            onClick={() => navigate('/settings')}
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-              activeTab === 'settings'
+              location.pathname === '/settings'
                 ? 'bg-blue-50 text-blue-700'
                 : 'text-gray-700 hover:bg-gray-100'
             }`}
@@ -92,7 +107,7 @@ export function DashboardLayout({ children, activeTab, onTabChange, userName, us
         </div>
 
         {/* User Profile */}
-        <div className="p-4 border-t border-gray-200">
+        <div className="p-4 border-t border-gray-200 space-y-3">
           <div className="flex items-center gap-3">
             <Avatar>
               <AvatarFallback className="bg-blue-600 text-white">
@@ -104,6 +119,15 @@ export function DashboardLayout({ children, activeTab, onTabChange, userName, us
               <p className="text-xs text-gray-500 truncate">{userEmail}</p>
             </div>
           </div>
+          <Button
+            onClick={handleLogout}
+            variant="outline"
+            size="sm"
+            className="w-full justify-start gap-2"
+          >
+            <LogOut className="w-4 h-4" />
+            Logout
+          </Button>
         </div>
       </aside>
 
@@ -113,7 +137,7 @@ export function DashboardLayout({ children, activeTab, onTabChange, userName, us
         <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
           <div>
             <h1 className="text-xl font-semibold text-gray-900">
-              {menuItems.find((item) => item.id === activeTab)?.label}
+              {getPageTitle()}
             </h1>
             <p className="text-sm text-gray-500">Manage your compliance and financial data</p>
           </div>

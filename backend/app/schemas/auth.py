@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional
 
 
@@ -10,11 +10,25 @@ class UserRegister(BaseModel):
     business_type: str
     phone: Optional[str] = None
 
+    @field_validator('password')
+    @classmethod
+    def validate_password(cls, v):
+        if not v or len(v.strip()) == 0:
+            raise ValueError('Password is required')
+        return v
+
 
 class UserLogin(BaseModel):
     """Schema for user login (CS203)."""
     email: EmailStr
     password: str
+
+    @field_validator('password')
+    @classmethod
+    def validate_password(cls, v):
+        if not v or len(v.strip()) == 0:
+            raise ValueError('Password is required')
+        return v
 
 
 class UserResponse(BaseModel):

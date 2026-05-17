@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -10,9 +11,11 @@ interface AuthPageProps {
   mode: 'login' | 'signup';
   onAuth: (email: string, name?: string, org?: string) => void;
   onBack: () => void;
+  onSwitchMode: (mode: 'login' | 'signup') => void;
 }
 
-export function AuthPage({ mode, onAuth, onBack }: AuthPageProps) {
+export function AuthPage({ mode, onAuth, onBack, onSwitchMode }: AuthPageProps) {
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -22,6 +25,17 @@ export function AuthPage({ mode, onAuth, onBack }: AuthPageProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Clear form when mode changes
+  useEffect(() => {
+    setEmail('');
+    setPassword('');
+    setName('');
+    setOrganization('');
+    setBusinessType('proprietorship');
+    setPhone('');
+    setError('');
+  }, [mode]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -29,7 +43,7 @@ export function AuthPage({ mode, onAuth, onBack }: AuthPageProps) {
 
     try {
       if (mode === 'signup') {
-        await apiClient.register({
+        const response = await apiClient.register({
           email,
           password,
           business_name: organization,
@@ -37,9 +51,13 @@ export function AuthPage({ mode, onAuth, onBack }: AuthPageProps) {
           phone: phone || undefined,
         });
         onAuth(email, name, organization);
+        // Redirect to dashboard after successful signup
+        setTimeout(() => navigate('/dashboard'), 300);
       } else {
-        await apiClient.login({ email, password });
+        const response = await apiClient.login({ email, password });
         onAuth(email);
+        // Redirect to dashboard after successful login
+        setTimeout(() => navigate('/dashboard'), 300);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Authentication failed');
@@ -181,14 +199,14 @@ export function AuthPage({ mode, onAuth, onBack }: AuthPageProps) {
               {mode === 'login' ? (
                 <p className="text-gray-600">
                   Don't have an account?{' '}
-                  <button onClick={onBack} className="text-blue-600 hover:underline">
+                  <button onClick={() => onSwitchMode('signup')} className="text-blue-600 hover:underline">
                     Sign up
                   </button>
                 </p>
               ) : (
                 <p className="text-gray-600">
                   Already have an account?{' '}
-                  <button onClick={onBack} className="text-blue-600 hover:underline">
+                  <button onClick={() => onSwitchMode('login')} className="text-blue-600 hover:underline">
                     Sign in
                   </button>
                 </p>

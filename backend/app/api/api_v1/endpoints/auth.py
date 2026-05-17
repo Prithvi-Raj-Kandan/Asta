@@ -17,7 +17,7 @@ def register(user_data: UserRegister, db: Session = Depends(get_db)):
     """
     CS203: Register a new user.
     - email: user email (unique)
-    - password: user password (will be hashed)
+    - password: user password (will be hashed) - max 72 bytes
     - business_name: business name
     - business_type: business type (e.g., proprietorship, partnership, pvt_ltd)
     - phone: optional phone number
@@ -30,18 +30,35 @@ def register(user_data: UserRegister, db: Session = Depends(get_db)):
             detail="Email already registered"
         )
     
-    # Hash password
-    hashed_password = get_password_hash(user_data.password)
-    
-    # Create new user
-    new_user = User(
-        email=user_data.email,
-        password_hash=hashed_password,
-        business_name=user_data.business_name,
-        business_type=user_data.business_type,
-        phone=user_data.phone
-    )
-    
+    try:
+        # Hash password
+        hashed_password = get_password_hash(user_data.password)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+    # Create new user using attribute names compatible with reflected model
+    new_user = User()
+
+    # Helper to set the first attribute that exists on the reflected model
+    def set_first_attr(obj, candidates, value):
+        for name in candidates:
+            if hasattr(obj, name):
+                setattr(obj, name, value)
+                return True
+        # fallback: set the first candidate anyway
+        setattr(obj, candidates[0], value)
+        return False
+
+    set_first_attr(new_user, ["email", "emailaddress", "user_email"], user_data.email)
+    set_first_attr(new_user, ["password_hash", "passwordhash", "passwordHash", "password"], hashed_password)
+    set_first_attr(new_user, ["business_name", "businessname", "businessName"], user_data.business_name)
+    set_first_attr(new_user, ["business_type", "businesstype", "businessType"], user_data.business_type)
+    if user_data.phone:
+        set_first_attr(new_user, ["phone", "phone_number", "mobile"], user_data.phone)
+
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
@@ -71,8 +88,20 @@ def login(credentials: UserLogin, db: Session = Depends(get_db)):
             detail="Invalid credentials"
         )
     
-    # Verify password
-    if not verify_password(credentials.password, user.password_hash):
+    # Verify password - try multiple possible reflected attribute names
+    hashed = None
+    for attr in ("password_hash", "passwordhash", "passwordHash", "password"):
+        if hasattr(user, attr):
+            hashed = getattr(user, attr)
+            break
+
+    if not hashed:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="User has no password set"
+        )
+
+    if not verify_password(credentials.password, hashed):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials"

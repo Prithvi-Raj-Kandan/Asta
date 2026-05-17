@@ -3,17 +3,22 @@ from typing import Optional
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+import hashlib
 
 # For production, use a strong secret key stored in environment variables
 SECRET_KEY = "your-secret-key-change-in-production"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Use scrypt which is more reliable and doesn't have bcrypt compatibility issues
+pwd_context = CryptContext(
+    schemes=["scrypt"],
+    deprecated="auto"
+)
 
 
 def get_password_hash(password: str) -> str:
-    """Hash a password."""
+    """Hash a password using scrypt."""
     return pwd_context.hash(password)
 
 
