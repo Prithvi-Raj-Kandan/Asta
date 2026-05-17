@@ -1,5 +1,6 @@
 from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional
+from uuid import UUID
 
 
 class UserRegister(BaseModel):
@@ -33,7 +34,7 @@ class UserLogin(BaseModel):
 
 class UserResponse(BaseModel):
     """Schema for user response (CS203)."""
-    id: str
+    id: UUID
     email: str
     business_name: str
     business_type: str

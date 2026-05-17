@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 
 from ....db.session import get_db
-from ....models.reflected import User, ExtractionJob
+from ....models.reflected import UserSimple, ExtractionJob
 from ....core.security import decode_access_token
 from ....schemas.upload import UploadCreate, UploadResponse, UploadListResponse
 
@@ -37,7 +37,7 @@ def get_current_user_id(authorization: str = None, db: Session = Depends(get_db)
         )
     
     user_id = payload.get("sub")
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(UserSimple).filter(UserSimple.id == user_id).first()
     
     if not user:
         raise HTTPException(

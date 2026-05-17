@@ -1,8 +1,10 @@
 from pathlib import Path
 import sys
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 
 # Allow imports from both backend root and backend/app directories
 if __package__ in {None, ""}:
@@ -19,7 +21,7 @@ else:
 
 app = FastAPI(title=settings.PROJECT_NAME, version="0.1.0")
 
-# Configure CORS
+# Configure CORS - MUST be added BEFORE include_router
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -40,6 +42,21 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+
+@app.exception_handler(ValidationError)
+async def validation_error_handler(request: Request, exc: ValidationError):
+    """Handle Pydantic validation errors with detailed messages"""
+    errors = exc.errors()
+    error_details = []
+    for error in errors:
+        field = ".".join(str(loc) for loc in error["loc"][1:])
+        error_details.append(f"{field}: {error['msg']}")
+    
+    return JSONResponse(
+        status_code=400,
+        content={"detail": " | ".join(error_details) if error_details else "Validation error"}
+    )
 
 
 @app.on_event("startup")

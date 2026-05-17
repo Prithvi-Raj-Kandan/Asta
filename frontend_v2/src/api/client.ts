@@ -82,7 +82,10 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      throw new Error("Login failed");
+      const errorData = await response.json();
+      const errorMessage = errorData.detail || "Login failed";
+      console.error("Login error:", errorData);
+      throw new Error(errorMessage);
     }
 
     const data = await response.json();
@@ -98,7 +101,10 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      throw new Error("Registration failed");
+      const errorData = await response.json();
+      const errorMessage = errorData.detail || "Registration failed";
+      console.error("Registration error:", errorData);
+      throw new Error(errorMessage);
     }
 
     const result = await response.json();

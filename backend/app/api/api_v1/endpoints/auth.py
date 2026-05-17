@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Depends, status
 from sqlalchemy.orm import Session
 
 from ....db.session import get_db
-from ....models.reflected import User
+from ....models.reflected import UserSimple
 from ....core.security import get_password_hash, verify_password, create_access_token, decode_access_token
 from ....schemas.auth import UserRegister, UserLogin, TokenResponse, UserResponse
 
@@ -23,7 +23,7 @@ def register(user_data: UserRegister, db: Session = Depends(get_db)):
     - phone: optional phone number
     """
     # Check if user already exists
-    existing_user = db.query(User).filter(User.email == user_data.email).first()
+    existing_user = db.query(UserSimple).filter(UserSimple.email == user_data.email).first()
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -39,25 +39,14 @@ def register(user_data: UserRegister, db: Session = Depends(get_db)):
             detail=str(e)
         )
 
-    # Create new user using attribute names compatible with reflected model
-    new_user = User()
-
-    # Helper to set the first attribute that exists on the reflected model
-    def set_first_attr(obj, candidates, value):
-        for name in candidates:
-            if hasattr(obj, name):
-                setattr(obj, name, value)
-                return True
-        # fallback: set the first candidate anyway
-        setattr(obj, candidates[0], value)
-        return False
-
-    set_first_attr(new_user, ["email", "emailaddress", "user_email"], user_data.email)
-    set_first_attr(new_user, ["password_hash", "passwordhash", "passwordHash", "password"], hashed_password)
-    set_first_attr(new_user, ["business_name", "businessname", "businessName"], user_data.business_name)
-    set_first_attr(new_user, ["business_type", "businesstype", "businessType"], user_data.business_type)
+    # Create new user - users_simple table has exact column names matching our schema
+    new_user = UserSimple()
+    new_user.email = user_data.email
+    new_user.password_hash = hashed_password
+    new_user.business_name = user_data.business_name
+    new_user.business_type = user_data.business_type
     if user_data.phone:
-        set_first_attr(new_user, ["phone", "phone_number", "mobile"], user_data.phone)
+        new_user.phone = user_data.phone
 
     db.add(new_user)
     db.commit()
@@ -81,27 +70,15 @@ def login(credentials: UserLogin, db: Session = Depends(get_db)):
     - password: user password
     """
     # Find user by email
-    user = db.query(User).filter(User.email == credentials.email).first()
+    user = db.query(UserSimple).filter(UserSimple.email == credentials.email).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials"
         )
     
-    # Verify password - try multiple possible reflected attribute names
-    hashed = None
-    for attr in ("password_hash", "passwordhash", "passwordHash", "password"):
-        if hasattr(user, attr):
-            hashed = getattr(user, attr)
-            break
-
-    if not hashed:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="User has no password set"
-        )
-
-    if not verify_password(credentials.password, hashed):
+    # Verify password
+    if not verify_password(credentials.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials"
@@ -138,7 +115,7 @@ def get_current_user(token: str = None, db: Session = Depends(get_db)):
         )
     
     user_id = payload.get("sub")
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(UserSimple).filter(UserSimple.id == user_id).first()
     
     if not user:
         raise HTTPException(
