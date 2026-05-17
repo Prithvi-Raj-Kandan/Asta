@@ -3,4 +3,5 @@ uvicorn[standard]
 SQLAlchemy
 python-dotenv
 pydantic
+pydantic-settings
 psycopg2-binary
