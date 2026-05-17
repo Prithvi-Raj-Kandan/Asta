@@ -25,4 +25,6 @@ API
 
 Notes
 - This scaffold uses synchronous SQLAlchemy sessions for simplicity. We can convert to async later if desired.
-- Database models are intentionally left as placeholders; you mentioned you created the PostgreSQL schema — I can map SQLAlchemy models to your PostgreSQL tables next.
+- Database models are now mapped through deferred reflection against your live PostgreSQL schema.
+- Reflected tables currently include: `state_codes`, `users`, `extraction_jobs`, `invoices`, `invoice_line_items`, `hsn_master`, `compliance_obligations`, `documents_generated`, and `chat_history`.
+- The next workflow ticket can call `backend.app.models.prepare_models()` before using ORM queries.
