@@ -1,27 +1,71 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Upload, FileText, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { Progress } from './ui/progress';
+import { apiClient, UploadResponse } from '../../api/client';
 
 export function DocumentUpload() {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [uploads, setUploads] = useState<UploadResponse[]>([]);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
 
-  const handleUpload = () => {
+  useEffect(() => {
+    loadUploads();
+  }, []);
+
+  const loadUploads = async () => {
+    try {
+      const data = await apiClient.listUploads();
+      setUploads(Array.isArray(data) ? data : []);
+      setError('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load uploads');
+      setUploads([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.currentTarget.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
     setUploading(true);
     setProgress(0);
+    setError('');
 
-    const interval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setTimeout(() => setUploading(false), 500);
-          return 100;
-        }
-        return prev + 10;
-      });
-    }, 200);
+    try {
+      // Simulate progress while uploading
+      const progressInterval = setInterval(() => {
+        setProgress((prev) => {
+          if (prev >= 90) {
+            clearInterval(progressInterval);
+            return 90;
+          }
+          return prev + Math.random() * 30;
+        });
+      }, 200);
+
+      const response = await apiClient.uploadFile(file);
+
+      clearInterval(progressInterval);
+      setProgress(100);
+
+      // Reload uploads list
+      setTimeout(() => {
+        loadUploads();
+        setUploading(false);
+        setProgress(0);
+      }, 500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload failed');
+      setUploading(false);
+      setProgress(0);
+    }
   };
 
   return (
@@ -35,11 +79,25 @@ export function DocumentUpload() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center hover:border-blue-500 transition-colors cursor-pointer">
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+              <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
+              <p className="text-sm text-red-600">{error}</p>
+            </div>
+          )}
+          
+          <label className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center hover:border-blue-500 transition-colors cursor-pointer block">
             <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">Drop files here or click to browse</h3>
             <p className="text-sm text-gray-500 mb-4">Supports PDF, JPG, PNG (Max 10MB per file)</p>
-            <Button onClick={handleUpload} disabled={uploading}>
+            <input
+              type="file"
+              onChange={handleUpload}
+              disabled={uploading}
+              className="hidden"
+              accept=".pdf,.jpg,.jpeg,.png"
+            />
+            <Button disabled={uploading}>
               {uploading ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -52,13 +110,13 @@ export function DocumentUpload() {
                 </>
               )}
             </Button>
-          </div>
+          </label>
 
           {uploading && (
             <div className="mt-4 space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-gray-700">Uploading and extracting data...</span>
-                <span className="text-gray-500">{progress}%</span>
+                <span className="text-gray-500">{Math.round(progress)}%</span>
               </div>
               <Progress value={progress} />
             </div>
@@ -92,40 +150,46 @@ export function DocumentUpload() {
       <Card>
         <CardHeader>
           <CardTitle>Recent Uploads</CardTitle>
-          <CardDescription>Documents processed in the last 7 days</CardDescription>
+          <CardDescription>Your uploaded documents</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
-            {[
-              { name: 'Invoice_ABC_May2026.pdf', type: 'Sale Invoice', date: '2026-05-12', status: 'success', amount: '₹15,000' },
-              { name: 'Bill_XYZ_Supplies.pdf', type: 'Purchase Bill', date: '2026-05-11', status: 'success', amount: '₹8,500' },
-              { name: 'Credit_Note_DEF.pdf', type: 'Credit Note', date: '2026-05-10', status: 'processing', amount: '₹2,000' },
-              { name: 'Invoice_GHI_Industries.pdf', type: 'Sale Invoice', date: '2026-05-09', status: 'success', amount: '₹22,000' },
-              { name: 'Bank_Statement_May.pdf', type: 'Bank Statement', date: '2026-05-08', status: 'error', amount: '-' },
-            ].map((upload, index) => (
-              <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
-                <div className="flex items-center gap-3 flex-1">
-                  <FileText className="w-8 h-8 text-gray-400" />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-900 truncate">{upload.name}</p>
-                    <p className="text-sm text-gray-500">{upload.type} • {upload.date}</p>
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+            </div>
+          ) : uploads.length > 0 ? (
+            <div className="space-y-3">
+              {uploads.map((upload) => (
+                <div key={upload.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                  <div className="flex items-center gap-3 flex-1">
+                    <FileText className="w-8 h-8 text-gray-400" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-gray-900 truncate">{upload.filename}</p>
+                      <p className="text-sm text-gray-500">
+                        {upload.filetype} • {new Date(upload.upload_date).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <span className="text-sm text-gray-500">{(upload.filesize / 1024).toFixed(1)} KB</span>
+                    {upload.status === 'uploaded' && (
+                      <CheckCircle2 className="w-5 h-5 text-green-600" />
+                    )}
+                    {upload.status === 'processing' && (
+                      <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+                    )}
+                    {upload.status === 'error' && (
+                      <AlertCircle className="w-5 h-5 text-red-600" />
+                    )}
                   </div>
                 </div>
-                <div className="flex items-center gap-4">
-                  <span className="text-sm font-medium text-gray-900">{upload.amount}</span>
-                  {upload.status === 'success' && (
-                    <CheckCircle2 className="w-5 h-5 text-green-600" />
-                  )}
-                  {upload.status === 'processing' && (
-                    <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
-                  )}
-                  {upload.status === 'error' && (
-                    <AlertCircle className="w-5 h-5 text-red-600" />
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              <p>No uploads yet. Upload a document to get started.</p>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
