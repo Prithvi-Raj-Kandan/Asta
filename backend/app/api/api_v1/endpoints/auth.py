@@ -8,6 +8,7 @@ from ....db.session import get_db
 from ....models.reflected import UserSimple
 from ....core.security import get_password_hash, verify_password, create_access_token, decode_access_token
 from ....schemas.auth import UserRegister, UserLogin, TokenResponse, UserResponse
+from ....services.user_identity import resolve_primary_user_id
 
 router = APIRouter()
 
@@ -51,6 +52,9 @@ def register(user_data: UserRegister, db: Session = Depends(get_db)):
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+
+    resolve_primary_user_id(db, str(new_user.id))
+    db.commit()
     
     # Create access token
     access_token = create_access_token(data={"sub": str(new_user.id)})

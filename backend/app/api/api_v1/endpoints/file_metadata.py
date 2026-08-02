@@ -1,19 +1,20 @@
 """
 CS205: File metadata and document generation endpoints
 """
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Header
 from sqlalchemy.orm import Session
 from uuid import UUID
 
 from ....db.session import get_db
 from ....models.reflected import UserSimple, ExtractionJob, DocumentGenerated
 from ....core.security import decode_access_token
-from ....schemas.file_metadata import FileMetadataResponse, DocumentGeneratedResponse
+from ....schemas.file_metadata import FileMetadataResponse, DocumentGeneratedResponse, ExtractionMetadata
+from ....services.user_identity import resolve_primary_user_id
 
 router = APIRouter()
 
 
-def get_current_user_id(authorization: str = None, db: Session = Depends(get_db)) -> str:
+def get_current_user_id(authorization: str | None = Header(None, alias="Authorization"), db: Session = Depends(get_db)) -> str:
     """Extract and verify user from bearer token."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
@@ -39,13 +40,24 @@ def get_current_user_id(authorization: str = None, db: Session = Depends(get_db)
             detail="User not found"
         )
     
-    return user_id
+    return resolve_primary_user_id(db, user_id)
+
+
+def _get_attr(obj, logical_name, default=None):
+    cols = {c.name for c in obj.__table__.columns}
+    if logical_name in cols:
+        return getattr(obj, logical_name)
+    alt = logical_name.replace("_", "")
+    for c in cols:
+        if c.replace("_", "") == alt:
+            return getattr(obj, c)
+    return getattr(obj, logical_name, default)
 
 
 @router.get("/{file_id}/metadata", response_model=FileMetadataResponse)
 def get_file_metadata(
     file_id: str,
-    authorization: str = None,
+    authorization: str | None = Header(None, alias="Authorization"),
     db: Session = Depends(get_db)
 ):
     """
@@ -58,7 +70,7 @@ def get_file_metadata(
     # Get extraction job (file)
     extraction_job = db.query(ExtractionJob).filter(
         ExtractionJob.id == file_id,
-        ExtractionJob.user_id == user_id
+        ExtractionJob.userid == user_id
     ).first()
     
     if not extraction_job:
@@ -73,14 +85,25 @@ def get_file_metadata(
     ).all()
     
     generated_documents = [doc.document_type for doc in generated_docs]
+
+    extraction_metadata = None
+    extracted_data = _get_attr(extraction_job, "extracteddata", None)
+    if extracted_data:
+        extraction_metadata = ExtractionMetadata(
+            extraction_job_id=_get_attr(extraction_job, "id"),
+            extracted_fields=extracted_data if isinstance(extracted_data, dict) else {"raw": extracted_data},
+            extraction_status=_get_attr(extraction_job, "status", "queued"),
+            extraction_date=_get_attr(extraction_job, "completedat", _get_attr(extraction_job, "createdat")),
+            confidence_score=_get_attr(extraction_job, "ocrconfidence", None),
+        )
     
     return FileMetadataResponse(
-        file_id=extraction_job.id,
-        filename=extraction_job.filename,
-        filetype=extraction_job.filetype,
-        filesize=extraction_job.filesize,
-        upload_date=extraction_job.upload_date,
-        extraction_metadata=None,  # Can be populated if extraction data is available
+        file_id=_get_attr(extraction_job, "id"),
+        filename=_get_attr(extraction_job, "filename"),
+        filetype=_get_attr(extraction_job, "filetype"),
+        filesize=_get_attr(extraction_job, "filesizebytes"),
+        upload_date=_get_attr(extraction_job, "upload_date", _get_attr(extraction_job, "createdat")),
+        extraction_metadata=extraction_metadata,
         generated_documents=generated_documents
     )
 
@@ -88,7 +111,7 @@ def get_file_metadata(
 @router.get("/{file_id}/documents", response_model=list[DocumentGeneratedResponse])
 def get_generated_documents(
     file_id: str,
-    authorization: str = None,
+    authorization: str | None = Header(None, alias="Authorization"),
     db: Session = Depends(get_db)
 ):
     """
@@ -101,7 +124,7 @@ def get_generated_documents(
     # Verify file belongs to user
     extraction_job = db.query(ExtractionJob).filter(
         ExtractionJob.id == file_id,
-        ExtractionJob.user_id == user_id
+        ExtractionJob.userid == user_id
     ).first()
     
     if not extraction_job:
@@ -129,7 +152,7 @@ def get_generated_documents(
 
 @router.get("/generated/documents", response_model=list[DocumentGeneratedResponse])
 def get_all_generated_documents(
-    authorization: str = None,
+    authorization: str | None = Header(None, alias="Authorization"),
     db: Session = Depends(get_db)
 ):
     """
@@ -140,10 +163,10 @@ def get_all_generated_documents(
     
     # Get all extraction jobs for this user
     extraction_jobs = db.query(ExtractionJob).filter(
-        ExtractionJob.user_id == user_id
+        ExtractionJob.userid == user_id
     ).all()
     
-    job_ids = [job.id for job in extraction_jobs]
+    job_ids = [_get_attr(job, "id") for job in extraction_jobs]
     
     # Get all generated documents for these jobs
     documents = db.query(DocumentGenerated).filter(

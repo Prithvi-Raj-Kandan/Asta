@@ -40,6 +40,51 @@ export interface UploadResponse {
   file_path?: string;
 }
 
+export interface GSTR1DraftRow {
+  gstin_uin: string;
+  trade_name: string;
+  invoice_no: string;
+  date_of_invoice: string;
+  invoice_value: string;
+  gst_percent: string;
+  taxable_value: string;
+  cess: string;
+  place_of_supply: string;
+  rcm_applicable: string;
+  invoice_type: string;
+  e_commerce_gstin: string;
+}
+
+export interface ExtractionIssue {
+  field: string;
+  message: string;
+  severity: string;
+}
+
+export interface UploadDraftResponse extends UploadResponse {
+  document_type: string;
+  ocr_engine: string;
+  draft_row: GSTR1DraftRow;
+  extraction_issues: ExtractionIssue[];
+}
+
+export interface InvoiceRow {
+  id: string;
+  document_type: string;
+  source_type: string;
+  invoice_number: string;
+  invoice_date?: string | null;
+  party_name?: string | null;
+  party_gstin?: string | null;
+  taxable_value?: number | null;
+  cgst_amount?: number | null;
+  sgst_amount?: number | null;
+  igst_amount?: number | null;
+  total_value?: number | null;
+  status: string;
+  confirmed_at?: string | null;
+}
+
 class ApiClient {
   private token: string | null = null;
 
@@ -125,9 +170,10 @@ class ApiClient {
     return response.json();
   }
 
-  async uploadFile(file: File): Promise<UploadResponse> {
+  async uploadFile(file: File, documentType: string): Promise<UploadDraftResponse> {
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("document_type", documentType);
 
     const headers: HeadersInit = {};
     if (this.token) {
@@ -142,6 +188,21 @@ class ApiClient {
 
     if (!response.ok) {
       throw new Error("Upload failed");
+    }
+
+    return response.json();
+  }
+
+  async confirmUpload(uploadId: string, documentType: string, draftRow: GSTR1DraftRow, extractionIssues: ExtractionIssue[] = []): Promise<InvoiceRow> {
+    const response = await fetch(`${API_BASE_URL}/uploads/${uploadId}/confirm`, {
+      method: "POST",
+      headers: this.getHeaders(true),
+      body: JSON.stringify({ document_type: documentType, draft_row: draftRow, extraction_issues: extractionIssues }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.detail || "Failed to confirm upload");
     }
 
     return response.json();
@@ -220,6 +281,19 @@ class ApiClient {
 
     if (!response.ok) {
       throw new Error("Failed to fetch documents");
+    }
+
+    return response.json();
+  }
+
+  async listInvoices(): Promise<InvoiceRow[]> {
+    const response = await fetch(`${API_BASE_URL}/invoices/`, {
+      method: "GET",
+      headers: this.getHeaders(true),
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch invoices");
     }
 
     return response.json();
