@@ -13,3 +13,8 @@ rapidocr-onnxruntime
 pymupdf
 pdfplumber
 pillow
+opencv-python
+numpy
+google-genai
+openpyxl
+pgvector

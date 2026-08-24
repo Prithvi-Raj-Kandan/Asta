@@ -7,6 +7,7 @@ import { Badge } from './ui/badge';
 import { Search, Download, Filter, Plus, Eye, Edit, Trash2, FileText } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { apiClient, InvoiceRow } from '../../api/client';
+import { toast } from 'sonner';
 
 export function InvoicesPage() {
   const [rows, setRows] = useState<InvoiceRow[]>([]);
@@ -14,15 +15,26 @@ export function InvoicesPage() {
   const [activeTab, setActiveTab] = useState('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     void loadInvoices();
   }, []);
 
+  useEffect(() => {
+    const refresh = () => {
+      void loadInvoices();
+    };
+
+    window.addEventListener('app:data-updated', refresh);
+    return () => window.removeEventListener('app:data-updated', refresh);
+  }, []);
+
   const loadInvoices = async () => {
     try {
       const data = await apiClient.listInvoices();
-      setRows(Array.isArray(data) ? data : []);
+      const rows = Array.isArray(data) ? data : [];
+      setRows(rows);
       setError('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load invoices');
@@ -39,7 +51,11 @@ export function InvoicesPage() {
         (invoice.party_gstin || '').toLowerCase().includes(searchQuery.toLowerCase());
 
       const normalizedType = (invoice.document_type || '').toLowerCase();
-      const matchesTab = activeTab === 'all' || normalizedType === activeTab;
+      const mappedType =
+        normalizedType === 'sales_invoice' ? 'sale_bill' :
+        normalizedType === 'purchase_invoice' ? 'purchase_bill' :
+        normalizedType;
+      const matchesTab = activeTab === 'all' || mappedType === activeTab;
 
       return matchesSearch && matchesTab;
     });
@@ -78,6 +94,25 @@ export function InvoicesPage() {
   const totalInvoices = filteredInvoices.reduce((sum, inv) => sum + (inv.total_value || 0), 0);
   const totalTaxable = filteredInvoices.reduce((sum, inv) => sum + (inv.taxable_value || 0), 0);
   const totalCount = filteredInvoices.length;
+
+  const handleExportGstr1 = async () => {
+    const period = new Date().toISOString().slice(0, 7);
+    try {
+      setExporting(true);
+      const blob = await apiClient.exportGstr1(period, 'csv');
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `gstr1_${period}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Exported GSTR-1 for ${period}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Export failed');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -122,9 +157,9 @@ export function InvoicesPage() {
                 <Filter className="w-4 h-4 mr-2" />
                 Filter
               </Button>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" disabled={exporting} onClick={() => void handleExportGstr1()}>
                 <Download className="w-4 h-4 mr-2" />
-                Export
+                {exporting ? 'Exporting…' : 'Export GSTR-1'}
               </Button>
               <Button size="sm">
                 <Plus className="w-4 h-4 mr-2" />
@@ -163,7 +198,7 @@ export function InvoicesPage() {
           </div>
 
           <div className="border rounded-lg overflow-hidden">
-            <Table>
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
                   <TableHead>Invoice No.</TableHead>
@@ -214,6 +249,9 @@ export function InvoicesPage() {
                 ))}
               </TableBody>
             </Table>
+            {rows.length === 0 && !loading && (
+              <div className="border-t p-4 text-sm text-gray-500">No invoice rows exist yet. Confirm an OCR draft to create the first record.</div>
+            )}
           </div>
 
           <div className="flex items-center justify-between mt-4 text-sm text-gray-600">
@@ -221,6 +259,9 @@ export function InvoicesPage() {
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" disabled>Previous</Button>
               <Button variant="outline" size="sm">Next</Button>
+              {rows.length === 0 && !loading && (
+                <div className="border-t p-4 text-sm text-gray-500">No invoice rows exist yet. Confirm an OCR draft to create the first record.</div>
+              )}
             </div>
           </div>
         </CardContent>

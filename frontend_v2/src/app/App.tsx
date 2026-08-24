@@ -13,6 +13,7 @@ import { AIAssistant } from './components/AIAssistant';
 import { ProfilePage } from './components/ProfilePage';
 import { SettingsPage } from './components/SettingsPage';
 import { AnalyticsPage } from './components/AnalyticsPage';
+import { Toaster } from 'sonner';
 
 function ProtectedRoute({ isAuthenticated, children }: { isAuthenticated: boolean; children: React.ReactNode }) {
   // Allow bypass during local development by setting localStorage 'dev_bypass' = '1'
@@ -154,6 +155,7 @@ function AppContent() {
 export default function App() {
   return (
     <BrowserRouter>
+      <Toaster richColors position="top-right" />
       <AppContent />
     </BrowserRouter>
   );

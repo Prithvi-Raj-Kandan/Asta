@@ -1,0 +1,37 @@
+{
+  "invoice_id": "3f6e7093-d94d-4d0d-9c63-d7f79e40a20c",
+  "upload_id": "9a1d1e4e-3a08-477c-9155-cb3bafe9d260",
+  "user_id": "f0ad2023-c0c3-48a8-887c-3999e784a1ef",
+  "document_type": "sale_bill",
+  "draft_row": {
+    "gstin_uin": "112631425862308",
+    "trade_name": "Mart",
+    "invoice_no": "Ref.No.GSM/26-27/1550",
+    "date_of_invoice": "26-27/1407",
+    "invoice_value": "2986.20",
+    "gst_percent": "",
+    "taxable_value": "",
+    "cess": "0",
+    "place_of_supply": "Karnataka,Code:29",
+    "rcm_applicable": "No",
+    "invoice_type": "B2B",
+    "e_commerce_gstin": ""
+  },
+  "extraction_issues": [
+    {
+      "field": "gst_percent",
+      "message": "Gst Percent was not confidently extracted",
+      "severity": "warning"
+    },
+    {
+      "field": "taxable_value",
+      "message": "Taxable Value was not confidently extracted",
+      "severity": "warning"
+    },
+    {
+      "field": "e_commerce_gstin",
+      "message": "E Commerce Gstin was not confidently extracted",
+      "severity": "warning"
+    }
+  ]
+}

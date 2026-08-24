@@ -56,7 +56,7 @@ class LocalOCRService:
             return self._extract_pdf(file_path)
 
         if suffix in {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}:
-            page = self._ocr_image(file_path.read_bytes(), 1)
+            page = self._ocr_image(self._preprocess_image_bytes(file_path.read_bytes()), 1)
             return OCRExtractionResult(
                 engine=self.engine_name,
                 source_type="image",
@@ -82,8 +82,8 @@ class LocalOCRService:
                     )
                     continue
 
-                pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
-                ocr_page = self._ocr_image(pixmap.tobytes("png"), index)
+                pixmap = page.get_pixmap(matrix=fitz.Matrix(3, 3), alpha=False)
+                ocr_page = self._ocr_image(self._preprocess_image_bytes(pixmap.tobytes("png")), index)
                 text_pages.append(ocr_page)
 
         if not text_pages:
@@ -105,6 +105,30 @@ class LocalOCRService:
             source_type="pdf",
             pages=text_pages,
         )
+
+    @staticmethod
+    def _preprocess_image_bytes(image_content: bytes) -> bytes:
+        try:
+            import cv2
+            import numpy as np
+
+            array = np.frombuffer(image_content, dtype=np.uint8)
+            image = cv2.imdecode(array, cv2.IMREAD_COLOR)
+            if image is None:
+                return image_content
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            height, width = gray.shape
+            if max(height, width) < 1400:
+                scale = 1400 / max(height, width)
+                gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+            gray = cv2.bilateralFilter(gray, 7, 50, 50)
+            binary = cv2.adaptiveThreshold(
+                gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 11
+            )
+            _ok, encoded = cv2.imencode(".png", binary)
+            return encoded.tobytes() if _ok else image_content
+        except Exception:
+            return image_content
 
     def _ocr_image(self, image_content: bytes, page_number: int) -> OCRPageText:
         result, _elapsed = self._engine(image_content)

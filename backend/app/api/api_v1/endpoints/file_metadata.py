@@ -1,6 +1,8 @@
 """
 CS205: File metadata and document generation endpoints
 """
+import json
+
 from fastapi import APIRouter, HTTPException, Depends, status, Header
 from sqlalchemy.orm import Session
 from uuid import UUID
@@ -8,8 +10,7 @@ from uuid import UUID
 from ....db.session import get_db
 from ....models.reflected import UserSimple, ExtractionJob, DocumentGenerated
 from ....core.security import decode_access_token
-from ....schemas.file_metadata import FileMetadataResponse, DocumentGeneratedResponse, ExtractionMetadata
-from ....services.user_identity import resolve_primary_user_id
+from ....schemas.file_metadata import FileMetadataResponse, DocumentGeneratedResponse
 
 router = APIRouter()
 
@@ -40,7 +41,7 @@ def get_current_user_id(authorization: str | None = Header(None, alias="Authoriz
             detail="User not found"
         )
     
-    return resolve_primary_user_id(db, user_id)
+    return user_id
 
 
 def _get_attr(obj, logical_name, default=None):
@@ -52,6 +53,43 @@ def _get_attr(obj, logical_name, default=None):
         if c.replace("_", "") == alt:
             return getattr(obj, c)
     return getattr(obj, logical_name, default)
+
+
+def _upload_timestamp(upload):
+    completed_at = _get_attr(upload, "completedat", None)
+    if completed_at:
+        return completed_at
+
+    return _get_attr(upload, "createdat", None)
+
+
+def _upload_filesize(upload):
+    filesize = _get_attr(upload, "filesizebytes", None)
+    if filesize is None:
+        filesize = _get_attr(upload, "filesize", 0)
+    return int(filesize or 0)
+
+
+def _document_inputdata(document):
+    input_data = _get_attr(document, "inputdata", None)
+    if isinstance(input_data, dict):
+        return input_data
+    if isinstance(input_data, str):
+        try:
+            parsed = json.loads(input_data)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _document_source_id(document):
+    input_data = _document_inputdata(document)
+    return input_data.get("extraction_job_id") or _get_attr(document, "invoiceid", None)
+
+
+def _get_user_documents(db: Session, user_id: str):
+    return db.query(DocumentGenerated).filter(DocumentGenerated.userid == user_id).all()
 
 
 @router.get("/{file_id}/metadata", response_model=FileMetadataResponse)
@@ -80,30 +118,20 @@ def get_file_metadata(
         )
     
     # Get generated documents for this extraction job
-    generated_docs = db.query(DocumentGenerated).filter(
-        DocumentGenerated.extraction_job_id == file_id
-    ).all()
+    generated_docs = [
+        doc for doc in _get_user_documents(db, user_id)
+        if str(_document_source_id(doc)) == str(file_id)
+    ]
     
-    generated_documents = [doc.document_type for doc in generated_docs]
-
-    extraction_metadata = None
-    extracted_data = _get_attr(extraction_job, "extracteddata", None)
-    if extracted_data:
-        extraction_metadata = ExtractionMetadata(
-            extraction_job_id=_get_attr(extraction_job, "id"),
-            extracted_fields=extracted_data if isinstance(extracted_data, dict) else {"raw": extracted_data},
-            extraction_status=_get_attr(extraction_job, "status", "queued"),
-            extraction_date=_get_attr(extraction_job, "completedat", _get_attr(extraction_job, "createdat")),
-            confidence_score=_get_attr(extraction_job, "ocrconfidence", None),
-        )
+    generated_documents = [_get_attr(doc, "documenttype") for doc in generated_docs]
     
     return FileMetadataResponse(
         file_id=_get_attr(extraction_job, "id"),
         filename=_get_attr(extraction_job, "filename"),
         filetype=_get_attr(extraction_job, "filetype"),
-        filesize=_get_attr(extraction_job, "filesizebytes"),
-        upload_date=_get_attr(extraction_job, "upload_date", _get_attr(extraction_job, "createdat")),
-        extraction_metadata=extraction_metadata,
+        filesize=_upload_filesize(extraction_job),
+        upload_date=_upload_timestamp(extraction_job),
+        extraction_metadata=None,  # Can be populated if extraction data is available
         generated_documents=generated_documents
     )
 
@@ -134,17 +162,18 @@ def get_generated_documents(
         )
     
     # Get generated documents
-    documents = db.query(DocumentGenerated).filter(
-        DocumentGenerated.extraction_job_id == file_id
-    ).all()
+    documents = [
+        doc for doc in _get_user_documents(db, user_id)
+        if str(_document_source_id(doc)) == str(file_id)
+    ]
     
     return [
         DocumentGeneratedResponse(
-            id=doc.id,
-            extraction_job_id=doc.extraction_job_id,
-            document_type=doc.document_type,
-            document_path=doc.document_path,
-            generated_date=doc.generated_date
+            id=_get_attr(doc, "id"),
+            extraction_job_id=_document_source_id(doc),
+            document_type=_get_attr(doc, "documenttype"),
+            document_path=_get_attr(doc, "outputfilepath"),
+            generated_date=_get_attr(doc, "generatedat"),
         )
         for doc in documents
     ]
@@ -160,26 +189,16 @@ def get_all_generated_documents(
     - Authorization: Bearer token (header)
     """
     user_id = get_current_user_id(authorization, db)
-    
-    # Get all extraction jobs for this user
-    extraction_jobs = db.query(ExtractionJob).filter(
-        ExtractionJob.userid == user_id
-    ).all()
-    
-    job_ids = [_get_attr(job, "id") for job in extraction_jobs]
-    
-    # Get all generated documents for these jobs
-    documents = db.query(DocumentGenerated).filter(
-        DocumentGenerated.extraction_job_id.in_(job_ids)
-    ).all() if job_ids else []
+
+    documents = _get_user_documents(db, user_id)
     
     return [
         DocumentGeneratedResponse(
-            id=doc.id,
-            extraction_job_id=doc.extraction_job_id,
-            document_type=doc.document_type,
-            document_path=doc.document_path,
-            generated_date=doc.generated_date
+            id=_get_attr(doc, "id"),
+            extraction_job_id=_document_source_id(doc),
+            document_type=_get_attr(doc, "documenttype"),
+            document_path=_get_attr(doc, "outputfilepath"),
+            generated_date=_get_attr(doc, "generatedat"),
         )
         for doc in documents
     ]

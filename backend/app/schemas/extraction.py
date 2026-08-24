@@ -68,3 +68,14 @@ class InvoiceListRow(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class InvoiceUpdateRequest(BaseModel):
+    invoice_number: Optional[str] = None
+    invoice_date: Optional[str] = None
+    party_name: Optional[str] = None
+    party_gstin: Optional[str] = None
+    taxable_value: Optional[float] = None
+    total_value: Optional[float] = None
+    document_type: Optional[str] = None
+    status: Optional[str] = None

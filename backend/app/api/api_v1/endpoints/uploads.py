@@ -1,30 +1,22 @@
 """
 CS204: File upload and management endpoints
 """
-from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Header, Form
+from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Form, Header
 from sqlalchemy.orm import Session
 from uuid import uuid4
 import os
 from pathlib import Path
-from datetime import datetime
-import json
 
 from ....db.session import get_db
-from decimal import Decimal, InvalidOperation
-
-from ....models.reflected import UserSimple, ExtractionJob, Invoice
+from ....models.reflected import UserSimple, ExtractionJob
 from ....core.security import decode_access_token
 from ....schemas.upload import UploadCreate, UploadResponse, UploadListResponse
-from ....schemas.ocr import OCRExtractionResponse, OCRPageResult
-from ....services.ocr import LocalOCRService, OCRServiceError
-from ....schemas.extraction import UploadDraftResponse, GSTR1DraftRow, ExtractionIssue
-from ....services.extraction import GSTR1ExtractionService
-from ....schemas.extraction import ConfirmDraftRequest, InvoiceListRow
+from ....schemas.extraction import ConfirmDraftRequest, InvoiceListRow, UploadDraftResponse, GSTR1DraftRow, ExtractionIssue
 from ....services.user_identity import resolve_primary_user_id
+from ....agents.ocr_agent import OCRAgent
+from .invoices import confirm_draft_to_invoice
 
 router = APIRouter()
-ocr_service = LocalOCRService()
-gstr1_service = GSTR1ExtractionService()
 
 # Upload directory
 UPLOAD_DIR = Path(__file__).resolve().parents[4] / "uploads"
@@ -32,7 +24,7 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 
 
 def get_current_user_id(authorization: str | None = Header(None, alias="Authorization"), db: Session = Depends(get_db)) -> str:
-    """Extract and verify user from bearer token."""
+    """Extract and verify user from bearer token; return primary users.id."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -77,8 +69,16 @@ def _map_and_set(obj, mapping: dict):
         return None
 
     for logical_name, value in mapping.items():
-        # try direct candidate list
-        candidates = [logical_name, logical_name.replace("user_id", "userid"), logical_name.replace("file_path", "filepath")]
+        candidates = [
+            logical_name,
+            logical_name.replace("user_id", "userid"),
+            logical_name.replace("file_path", "filepath"),
+            logical_name.replace("filesize", "filesizebytes"),
+            logical_name.replace("document_type", "documenttype"),
+            logical_name.replace("raw_text", "rawtext"),
+            logical_name.replace("extracted_data", "extracteddata"),
+            logical_name.replace("ocr_confidence", "ocrconfidence"),
+        ]
         col = find(candidates)
         if col:
             setattr(obj, col, value)
@@ -94,41 +94,43 @@ def _get_attr(obj, logical_name, default=None):
     for c in cols:
         if c.replace("_", "") == alt:
             return getattr(obj, c)
-    # last resort
     return getattr(obj, logical_name, default)
 
 
-def _to_decimal(value: str | None):
-    if value in {None, ""}:
-        return None
-    cleaned = str(value).replace(",", "").strip()
-    try:
-        return Decimal(cleaned)
-    except (InvalidOperation, ValueError):
-        return None
+def _upload_timestamp(upload):
+    completed_at = _get_attr(upload, "completedat", None)
+    if completed_at:
+        return completed_at
+
+    return _get_attr(upload, "createdat", None)
 
 
-def _normalize_file_type(file_name: str, mime_type: str | None) -> str:
+def _upload_filesize(upload):
+    filesize = _get_attr(upload, "filesizebytes", None)
+    if filesize is None:
+        filesize = _get_attr(upload, "filesize", 0)
+    return int(filesize or 0)
+
+
+def _normalize_filetype(file_name: str, content_type: str | None) -> str:
     extension = Path(file_name).suffix.lower().lstrip(".")
-    if extension == "jpeg" or mime_type == "image/jpeg":
-        return "jpg"
-    if extension in {"jpg", "png", "pdf", "xlsx", "csv"}:
-        return extension
-    if mime_type == "application/pdf":
+    mime_type = (content_type or "").lower()
+
+    if mime_type == "application/pdf" or extension == "pdf":
         return "pdf"
-    if mime_type == "image/png":
+    if mime_type in {"image/jpeg", "image/jpg"} or extension in {"jpg", "jpeg"}:
+        return "jpg"
+    if mime_type == "image/png" or extension == "png":
         return "png"
-    return "pdf"
+    if mime_type in {
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+    } or extension in {"xlsx", "xls"}:
+        return "xlsx"
+    if mime_type == "text/csv" or extension == "csv":
+        return "csv"
 
-
-def _download_mime_type(file_type: str | None) -> str:
-    return {
-        "pdf": "application/pdf",
-        "jpg": "image/jpeg",
-        "png": "image/png",
-        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "csv": "text/csv",
-    }.get((file_type or "").lower(), "application/octet-stream")
+    return (extension[:4] if extension else "pdf")
 
 
 @router.post("/", response_model=UploadDraftResponse, status_code=status.HTTP_201_CREATED)
@@ -139,8 +141,9 @@ async def upload_file(
     db: Session = Depends(get_db)
 ):
     """
-    CS204: Upload a file.
+    CS204: Upload a file, extract OCR data, build draft row, and return UploadDraftResponse.
     - file: the file to upload (multipart form data)
+    - document_type: type of document (sale_bill, purchase_bill, credit_note, etc.)
     - Authorization: Bearer token (header)
     """
     user_id = get_current_user_id(authorization, db)
@@ -156,71 +159,56 @@ async def upload_file(
     with open(file_path, "wb") as f:
         f.write(content)
     
-    filesizebytes = len(content)
-    filetype = _normalize_file_type(file.filename, file.content_type)
+    filesize = len(content)
+    filetype = _normalize_filetype(file.filename, file.content_type)
     
-    # Create extraction job record (use dynamic attribute mapping to support reflected models)
+    # Perform OCR + field extraction via OCR agent (regex fallback inside agent)
+    ocr_agent = OCRAgent()
+    agent_result = ocr_agent.run(
+        {"file_path": str(file_path), "document_type": document_type},
+        {"db": db, "user_id": user_id},
+    )
+    if not agent_result.success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=agent_result.error or "Extraction failed",
+        )
+
+    extracted_text = agent_result.data.get("raw_text") or ""
+    overall_confidence = agent_result.data.get("ocr_confidence")
+    ocr_engine = agent_result.data.get("ocr_engine") or "ocr_agent"
+    draft_row = GSTR1DraftRow(**(agent_result.data.get("draft_row") or {}))
+    extraction_issues = [
+        ExtractionIssue(**iss) if isinstance(iss, dict) else iss
+        for iss in (agent_result.data.get("extraction_issues") or [])
+    ]
+
+    extracted_data_payload = {
+        "document_type": document_type,
+        "ocr_engine": ocr_engine,
+        "draft_row": draft_row.model_dump(),
+        "extraction_issues": [issue.model_dump() for issue in extraction_issues],
+        "extraction_method": agent_result.data.get("method"),
+    }
+
+    # Create extraction job record in DB
     extraction_job = ExtractionJob()
     _map_and_set(extraction_job, {
         "id": file_id,
         "userid": user_id,
         "filename": file.filename,
-        "filetype": filetype,
-        "filesizebytes": filesizebytes,
-        "status": "queued",
+        "filetype": filetype[:4],
+        "filesizebytes": filesize,
+        "status": "complete",
         "documenttype": document_type,
-        "file_path": str(file_path),
+        "filepath": str(file_path),
+        "rawtext": extracted_text,
+        "extracteddata": extracted_data_payload,
+        "ocrconfidence": overall_confidence,
+        "confidencescores": {"ocr": overall_confidence, "method": agent_result.data.get("method")},
     })
     
     db.add(extraction_job)
-    db.commit()
-    db.refresh(extraction_job)
-
-    # Run OCR and build an editable draft row immediately after upload.
-    try:
-        _map_and_set(extraction_job, {"status": "extracting"})
-        db.commit()
-        db.refresh(extraction_job)
-
-        ocr_result = ocr_service.extract(file_path)
-        draft_row, issues = gstr1_service.build_draft(ocr_result.extracted_text, document_type)
-        extracted_payload = {
-            "draft_row": gstr1_service.draft_to_dict(draft_row),
-            "extraction_issues": [issue.model_dump() for issue in issues],
-            "ocr_engine": ocr_result.engine,
-            "source_type": ocr_result.source_type,
-            "page_count": len(ocr_result.pages),
-            "extracted_text": ocr_result.extracted_text,
-            "overall_confidence": ocr_result.overall_confidence,
-            "pages": [
-                {
-                    "page_number": page.page_number,
-                    "text": page.text,
-                    "line_count": page.line_count,
-                    "confidence": page.confidence,
-                }
-                for page in ocr_result.pages
-            ],
-        }
-
-        _map_and_set(extraction_job, {
-            "status": "complete",
-            "rawtext": ocr_result.extracted_text,
-            "extracteddata": extracted_payload,
-            "validationresults": {"issues": [issue.model_dump() for issue in issues]},
-            "ocrconfidence": ocr_result.overall_confidence,
-            "completedat": datetime.utcnow(),
-        })
-    except Exception as exc:
-        _map_and_set(extraction_job, {
-            "status": "failed",
-            "errormessage": str(exc),
-            "completedat": datetime.utcnow(),
-        })
-        db.commit()
-        db.refresh(extraction_job)
-        raise
-
     db.commit()
     db.refresh(extraction_job)
     
@@ -229,14 +217,14 @@ async def upload_file(
         user_id=_get_attr(extraction_job, "userid"),
         filename=_get_attr(extraction_job, "filename"),
         filetype=_get_attr(extraction_job, "filetype"),
-        filesize=_get_attr(extraction_job, "filesizebytes"),
+        filesize=_upload_filesize(extraction_job),
         status=_get_attr(extraction_job, "status"),
-        upload_date=_get_attr(extraction_job, "upload_date", _get_attr(extraction_job, "createdat")),
-        file_path=_get_attr(extraction_job, "file_path"),
-        document_type=_get_attr(extraction_job, "documenttype", document_type),
-        ocr_engine=ocr_result.engine,
+        upload_date=_upload_timestamp(extraction_job),
+        file_path=_get_attr(extraction_job, "filepath"),
+        document_type=document_type,
+        ocr_engine=ocr_engine,
         draft_row=draft_row,
-        extraction_issues=issues,
+        extraction_issues=extraction_issues,
     )
 
 
@@ -260,15 +248,15 @@ def list_uploads(
             id=_get_attr(upload, "id"),
             filename=_get_attr(upload, "filename"),
             filetype=_get_attr(upload, "filetype"),
-            filesize=_get_attr(upload, "filesizebytes"),
+            filesize=_upload_filesize(upload),
             status=_get_attr(upload, "status"),
-            upload_date=_get_attr(upload, "upload_date", _get_attr(upload, "createdat"))
+            upload_date=_upload_timestamp(upload)
         )
         for upload in uploads
     ]
 
 
-@router.get("/{upload_id}", response_model=UploadResponse)
+@router.get("/{upload_id}", response_model=UploadDraftResponse)
 def get_upload(
     upload_id: str,
     authorization: str | None = Header(None, alias="Authorization"),
@@ -292,15 +280,25 @@ def get_upload(
             detail="Upload not found"
         )
     
-    return UploadResponse(
+    extracted_data = _get_attr(upload, "extracteddata", None) or {}
+    draft_dict = extracted_data.get("draft_row", {})
+    draft_row = GSTR1DraftRow(**draft_dict) if draft_dict else GSTR1DraftRow()
+    issues_raw = extracted_data.get("extraction_issues", [])
+    issues = [ExtractionIssue(**iss) if isinstance(iss, dict) else iss for iss in issues_raw]
+    
+    return UploadDraftResponse(
         id=_get_attr(upload, "id"),
         user_id=_get_attr(upload, "userid"),
         filename=_get_attr(upload, "filename"),
         filetype=_get_attr(upload, "filetype"),
-        filesize=_get_attr(upload, "filesizebytes"),
+        filesize=_upload_filesize(upload),
         status=_get_attr(upload, "status"),
-        upload_date=_get_attr(upload, "upload_date", _get_attr(upload, "createdat")),
-        file_path=_get_attr(upload, "file_path")
+        upload_date=_upload_timestamp(upload),
+        file_path=_get_attr(upload, "filepath"),
+        document_type=extracted_data.get("document_type", _get_attr(upload, "documenttype", "sale_bill")),
+        ocr_engine=extracted_data.get("ocr_engine", "rapidocr-onnxruntime"),
+        draft_row=draft_row,
+        extraction_issues=issues,
     )
 
 
@@ -324,156 +322,34 @@ def download_file(
         ExtractionJob.userid == user_id
     ).first()
     
-    if not upload or not upload.file_path:
+    file_path = _get_attr(upload, "filepath")
+
+    if not upload or not file_path:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="File not found"
         )
     
-    if not os.path.exists(upload.file_path):
+    if not os.path.exists(file_path):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="File not found on disk"
         )
     
     return FileResponse(
-        path=upload.file_path,
-        filename=upload.filename,
-        media_type=_download_mime_type(_get_attr(upload, "filetype"))
-    )
-
-
-@router.get("/{upload_id}/ocr", response_model=OCRExtractionResponse)
-def extract_ocr_text(
-    upload_id: str,
-    authorization: str | None = Header(None, alias="Authorization"),
-    db: Session = Depends(get_db)
-):
-    """Run local OCR or PDF text extraction for an uploaded document."""
-    user_id = get_current_user_id(authorization, db)
-
-    upload = db.query(ExtractionJob).filter(
-        ExtractionJob.id == upload_id,
-        ExtractionJob.userid == user_id
-    ).first()
-
-    if not upload:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Upload not found"
-        )
-
-    file_path = _get_attr(upload, "file_path")
-    if not file_path:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Uploaded file path is missing"
-        )
-
-    try:
-        result = ocr_service.extract(Path(file_path))
-    except OCRServiceError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(exc)
-        ) from exc
-
-    return OCRExtractionResponse(
-        upload_id=_get_attr(upload, "id"),
-        engine=result.engine,
-        source_type=result.source_type,
-        page_count=len(result.pages),
-        extracted_text=result.extracted_text,
-        overall_confidence=result.overall_confidence,
-        pages=[
-            OCRPageResult(
-                page_number=page.page_number,
-                text=page.text,
-                line_count=page.line_count,
-                confidence=page.confidence,
-            )
-            for page in result.pages
-        ],
-        processed_at=datetime.utcnow(),
+        path=file_path,
+        filename=_get_attr(upload, "filename"),
+        media_type=_get_attr(upload, "filetype")
     )
 
 
 @router.post("/{upload_id}/confirm", response_model=InvoiceListRow, status_code=status.HTTP_201_CREATED)
-def confirm_extracted_row(
+def confirm_upload(
     upload_id: str,
     payload: ConfirmDraftRequest,
     authorization: str | None = Header(None, alias="Authorization"),
     db: Session = Depends(get_db)
 ):
-    """Persist the corrected OCR row into the invoices table and mark the upload confirmed."""
-    user_id = get_current_user_id(authorization, db)
+    """Confirm an uploaded draft into invoice, line item, and generated document rows."""
+    return confirm_draft_to_invoice(payload, authorization, db, upload_id=upload_id)
 
-    extraction_job = db.query(ExtractionJob).filter(
-        ExtractionJob.id == upload_id,
-        ExtractionJob.userid == user_id
-    ).first()
-
-    if not extraction_job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Upload not found"
-        )
-
-    draft = payload.draft_row
-    invoice_id = str(uuid4())
-    invoice = Invoice()
-    _map_and_set(invoice, {
-        "id": invoice_id,
-        "userid": user_id,
-        "documenttype": payload.document_type,
-        "sourcetype": "ocr",
-        "invoicenumber": draft.invoice_no,
-        "invoicedate": draft.date_of_invoice,
-        "partyname": draft.trade_name,
-        "partytype": "buyer",
-        "buyergstin": draft.gstin_uin,
-        "placeofsupply": draft.place_of_supply,
-        "supplytype": draft.invoice_type,
-        "taxablevalue": _to_decimal(draft.taxable_value),
-        "cgstamount": None,
-        "sgstamount": None,
-        "igstamount": None,
-        "totalvalue": _to_decimal(draft.invoice_value),
-        "rawtext": json.dumps(draft.model_dump()),
-        "status": "confirmed",
-        "confirmedat": datetime.utcnow(),
-        "extractionjobid": upload_id,
-        "overallconfidence": _get_attr(extraction_job, "ocrconfidence", None),
-    })
-
-    db.add(invoice)
-
-    _map_and_set(extraction_job, {
-        "status": "complete",
-        "extracteddata": {
-            "draft_row": draft.model_dump(),
-            "extraction_issues": [issue.model_dump() for issue in payload.extraction_issues],
-        },
-        "validationresults": {"issues": [issue.model_dump() for issue in payload.extraction_issues]},
-        "completedat": datetime.utcnow(),
-    })
-
-    db.commit()
-    db.refresh(invoice)
-
-    return InvoiceListRow(
-        id=_get_attr(invoice, "id"),
-        document_type=_get_attr(invoice, "documenttype", payload.document_type),
-        source_type=_get_attr(invoice, "sourcetype", "ocr"),
-        invoice_number=_get_attr(invoice, "invoicenumber", ""),
-        invoice_date=str(_get_attr(invoice, "invoicedate", "")) if _get_attr(invoice, "invoicedate", None) else None,
-        party_name=_get_attr(invoice, "partyname", None),
-        party_gstin=_get_attr(invoice, "buyergstin", None) or _get_attr(invoice, "sellergstin", None),
-        taxable_value=float(_get_attr(invoice, "taxablevalue", 0) or 0),
-        cgst_amount=float(_get_attr(invoice, "cgstamount", 0) or 0),
-        sgst_amount=float(_get_attr(invoice, "sgstamount", 0) or 0),
-        igst_amount=float(_get_attr(invoice, "igstamount", 0) or 0),
-        total_value=float(_get_attr(invoice, "totalvalue", 0) or 0),
-        status=_get_attr(invoice, "status", "confirmed"),
-        confirmed_at=_get_attr(invoice, "confirmedat", None),
-    )

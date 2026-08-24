@@ -38,6 +38,8 @@ export interface UploadResponse {
   status: string;
   upload_date: string;
   file_path?: string;
+  document_type?: string;
+  ocr_engine?: string;
 }
 
 export interface GSTR1DraftRow {
@@ -83,6 +85,15 @@ export interface InvoiceRow {
   total_value?: number | null;
   status: string;
   confirmed_at?: string | null;
+}
+
+export interface UploadListRow {
+  id: string;
+  filename: string;
+  filetype: string;
+  filesize: number;
+  status: string;
+  upload_date: string;
 }
 
 class ApiClient {
@@ -187,7 +198,8 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      throw new Error("Upload failed");
+      const errorData = await response.json().catch(() => null);
+      throw new Error(errorData?.detail || `Upload failed (${response.status})`);
     }
 
     return response.json();
@@ -209,6 +221,19 @@ class ApiClient {
   }
 
   async listUploads() {
+    const response = await fetch(`${API_BASE_URL}/uploads/`, {
+      method: "GET",
+      headers: this.getHeaders(true),
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch uploads");
+    }
+
+    return response.json();
+  }
+
+  async getUploadDrafts(): Promise<UploadDraftResponse[]> {
     const response = await fetch(`${API_BASE_URL}/uploads/`, {
       method: "GET",
       headers: this.getHeaders(true),
@@ -296,6 +321,102 @@ class ApiClient {
       throw new Error("Failed to fetch invoices");
     }
 
+    return response.json();
+  }
+
+  async previewGstr1(filingPeriod: string): Promise<{ filing_period: string; row_count: number; rows: Record<string, string>[] }> {
+    const response = await fetch(`${API_BASE_URL}/filings/gstr1/preview`, {
+      method: "POST",
+      headers: this.getHeaders(true),
+      body: JSON.stringify({ filing_period: filingPeriod }),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      throw new Error(errorData?.detail || "GSTR-1 preview failed");
+    }
+    return response.json();
+  }
+
+  async exportGstr1(filingPeriod: string, format: "csv" | "xlsx" = "csv"): Promise<Blob> {
+    const response = await fetch(`${API_BASE_URL}/filings/gstr1/export`, {
+      method: "POST",
+      headers: this.getHeaders(true),
+      body: JSON.stringify({ filing_period: filingPeriod, format, triggered_by: "user" }),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      throw new Error(errorData?.detail || "GSTR-1 export failed");
+    }
+    return response.blob();
+  }
+
+  async listObligations() {
+    const response = await fetch(`${API_BASE_URL}/compliance/obligations`, {
+      method: "GET",
+      headers: this.getHeaders(true),
+    });
+    if (!response.ok) throw new Error("Failed to load obligations");
+    return response.json();
+  }
+
+  async seedObligations(monthsAhead = 3) {
+    const response = await fetch(`${API_BASE_URL}/compliance/obligations/seed`, {
+      method: "POST",
+      headers: this.getHeaders(true),
+      body: JSON.stringify({ months_ahead: monthsAhead }),
+    });
+    if (!response.ok) throw new Error("Failed to seed obligations");
+    return response.json();
+  }
+
+  async markObligationFiled(id: string, filingReference?: string) {
+    const response = await fetch(`${API_BASE_URL}/compliance/obligations/${id}/filed`, {
+      method: "POST",
+      headers: this.getHeaders(true),
+      body: JSON.stringify({ filing_reference: filingReference }),
+    });
+    if (!response.ok) throw new Error("Failed to mark filed");
+    return response.json();
+  }
+
+  async listNotifications() {
+    const response = await fetch(`${API_BASE_URL}/compliance/notifications`, {
+      method: "GET",
+      headers: this.getHeaders(true),
+    });
+    if (!response.ok) throw new Error("Failed to load notifications");
+    return response.json();
+  }
+
+  async chat(message: string, sessionId?: string) {
+    const response = await fetch(`${API_BASE_URL}/chat/`, {
+      method: "POST",
+      headers: this.getHeaders(true),
+      body: JSON.stringify({ message, session_id: sessionId }),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      throw new Error(errorData?.detail || "Chat failed");
+    }
+    return response.json();
+  }
+
+  async getAnalyticsSummary() {
+    const response = await fetch(`${API_BASE_URL}/analytics/summary`, {
+      method: "GET",
+      headers: this.getHeaders(true),
+    });
+    if (!response.ok) throw new Error("Failed to load analytics");
+    return response.json();
+  }
+
+  async runAgent(intent: string | null, message: string, payload: Record<string, unknown> = {}) {
+    const response = await fetch(`${API_BASE_URL}/agents/run`, {
+      method: "POST",
+      headers: this.getHeaders(true),
+      body: JSON.stringify({ intent, message, payload }),
+    });
+    if (!response.ok) throw new Error("Agent run failed");
     return response.json();
   }
 }

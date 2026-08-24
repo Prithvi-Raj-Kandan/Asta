@@ -1,0 +1,32 @@
+{
+  "invoice_id": "08f03db4-75af-464f-9c24-8c4668b9eadf",
+  "upload_id": "5393a824-9a0f-4e0f-926c-c9d253405243",
+  "user_id": "f0ad2023-c0c3-48a8-887c-3999e784a1ef",
+  "document_type": "sale_bill",
+  "draft_row": {
+    "gstin_uin": "29ACBPL7628N1Z0",
+    "trade_name": "GAUTAM IRRIGATION",
+    "invoice_no": "1502",
+    "date_of_invoice": "10-07-2026",
+    "invoice_value": "30.00",
+    "gst_percent": "",
+    "taxable_value": "3917",
+    "cess": "0",
+    "place_of_supply": "Karnataka (29)",
+    "rcm_applicable": "No",
+    "invoice_type": "B2B",
+    "e_commerce_gstin": ""
+  },
+  "extraction_issues": [
+    {
+      "field": "gst_percent",
+      "message": "Gst Percent was not confidently extracted",
+      "severity": "warning"
+    },
+    {
+      "field": "e_commerce_gstin",
+      "message": "E Commerce Gstin was not confidently extracted",
+      "severity": "warning"
+    }
+  ]
+}

@@ -61,8 +61,27 @@ async def validation_error_handler(request: Request, exc: ValidationError):
 
 @app.on_event("startup")
 def startup_event():
-    """Prepare reflected models on startup"""
+    """Prepare reflected models, migrations, and reference seeds."""
     prepare_reflected_models(engine)
+    try:
+        if __package__ in {None, ""}:
+            from app.db.bootstrap import run_migrations, seed_reference_data
+            from app.db.session import SessionLocal
+        else:
+            from .db.bootstrap import run_migrations, seed_reference_data
+            from .db.session import SessionLocal
+
+        run_migrations(engine)
+        db = SessionLocal()
+        try:
+            seed_reference_data(db)
+        finally:
+            db.close()
+    except Exception as exc:
+        # Do not block API boot if seed/migration has a transient issue
+        import logging
+
+        logging.getLogger(__name__).exception("Bootstrap failed: %s", exc)
 
 
 @app.get("/")

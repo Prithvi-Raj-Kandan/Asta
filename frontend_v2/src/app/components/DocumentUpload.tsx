@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Badge } from './ui/badge';
 import { Upload, FileText, CheckCircle2, AlertCircle, Loader2, RefreshCw } from 'lucide-react';
 import { Progress } from './ui/progress';
+import { toast } from 'sonner';
 import { apiClient, GSTR1DraftRow, InvoiceRow, UploadDraftResponse, UploadResponse } from '../../api/client';
 
 const FIELD_LABELS: Array<{ key: keyof GSTR1DraftRow; label: string }> = [
@@ -119,6 +120,8 @@ export function DocumentUpload() {
       setDraft(null);
       setDraftRow(null);
       await loadDashboardData();
+      window.dispatchEvent(new Event('app:data-updated'));
+      toast.success('Saved');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Confirmation failed');
     } finally {
@@ -145,6 +148,11 @@ export function DocumentUpload() {
     () => confirmedRows.reduce((sum, row) => sum + (row.total_value || 0), 0),
     [confirmedRows]
   );
+
+  const normalizedUploads = uploads.map((upload) => ({
+    ...upload,
+    document_type: upload.document_type || 'sale_bill',
+  }));
 
   return (
     <div className="p-6 space-y-6">
@@ -405,7 +413,7 @@ export function DocumentUpload() {
         <CardContent>
           {uploads.length > 0 ? (
             <div className="space-y-3">
-              {uploads.map((upload) => (
+              {normalizedUploads.map((upload) => (
                 <div key={upload.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     <FileText className="w-8 h-8 text-gray-400" />
