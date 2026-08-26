@@ -20,6 +20,12 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
+If you run the command from `backend/app` instead of `backend`, use:
+
+```bash
+uvicorn main:app --reload --port 8000
+```
+
 API
 - Health check: `GET /api/v1/health/`
 

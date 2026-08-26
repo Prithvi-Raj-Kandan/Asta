@@ -11,6 +11,10 @@ class User(DeferredReflection, Base):
     __tablename__ = "users"
 
 
+class UserSimple(DeferredReflection, Base):
+    __tablename__ = "users_simple"
+
+
 class ExtractionJob(DeferredReflection, Base):
     __tablename__ = "extraction_jobs"
 

@@ -1,3 +1,18 @@
-# Pydantic schemas will go here for request/response validation.
+# Pydantic schemas for request/response validation
 
-__all__ = []
+from .auth import UserRegister, UserLogin, UserResponse, TokenResponse
+from .upload import UploadCreate, UploadResponse, UploadListResponse
+from .file_metadata import ExtractionMetadata, FileMetadataResponse, DocumentGeneratedResponse
+
+__all__ = [
+    "UserRegister",
+    "UserLogin", 
+    "UserResponse",
+    "TokenResponse",
+    "UploadCreate",
+    "UploadResponse",
+    "UploadListResponse",
+    "ExtractionMetadata",
+    "FileMetadataResponse",
+    "DocumentGeneratedResponse",
+]

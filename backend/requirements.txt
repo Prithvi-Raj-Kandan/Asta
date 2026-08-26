@@ -5,3 +5,15 @@ python-dotenv
 pydantic
 pydantic-settings
 psycopg2-binary
+passlib[bcrypt]
+python-jose[cryptography]
+email-validator
+python-multipart
+pymupdf
+pdfplumber
+pillow
+pytesseract
+numpy
+google-genai
+openpyxl
+pgvector
