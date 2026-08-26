@@ -23,7 +23,7 @@ export function DashboardLayout({ children, userName, userEmail }: DashboardLayo
     { id: 'upload', label: 'Upload', icon: Upload, path: '/upload' },
     { id: 'compliance', label: 'Compliance', icon: Calendar, path: '/compliance', badge: 3 },
     { id: 'analytics', label: 'Analytics', icon: BarChart3, path: '/analytics' },
-    { id: 'ai-assistant', label: 'AI Assistant', icon: MessageSquare, path: '/ai-assistant' },
+    { id: 'ai-assistant', label: 'Asta', icon: MessageSquare, path: '/ai-assistant' },
   ];
 
   const handleLogout = () => {

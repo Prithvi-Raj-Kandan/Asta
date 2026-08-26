@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Avatar, AvatarFallback } from './ui/avatar';
-import { Send, Bot, User, Sparkles, FileText, Calculator, Calendar } from 'lucide-react';
+import { Send, Bot, User, Sparkles, FileText, Calculator, Calendar, Download } from 'lucide-react';
 import { ScrollArea } from './ui/scroll-area';
 import { apiClient } from '../../api/client';
 import { toast } from 'sonner';
@@ -13,6 +13,9 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  downloadUrl?: string | null;
+  downloadFilename?: string | null;
+  downloadLabel?: string | null;
 }
 
 export function AIAssistant() {
@@ -20,14 +23,14 @@ export function AIAssistant() {
     {
       id: 1,
       role: 'assistant',
-      content:
-        "Hello! I'm your compliance co-pilot. Ask about GSTR-1/3B, deadlines, HSN, or export readiness. I use your invoices and the compliance knowledge base.",
+      content: 'Hi I am Asta, your compliance co-pilot. I can help you with any of your queries.',
       timestamp: new Date(),
     },
   ]);
   const [input, setInput] = useState('');
   const [sessionId, setSessionId] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
+  const [downloading, setDownloading] = useState<number | null>(null);
 
   const sendMessage = async (text: string) => {
     if (!text.trim() || busy) return;
@@ -50,6 +53,9 @@ export function AIAssistant() {
         role: 'assistant',
         content: res.reply,
         timestamp: new Date(),
+        downloadUrl: res.download_url,
+        downloadFilename: res.download_filename,
+        downloadLabel: res.download_label,
       };
       setMessages((prev) => [...prev, aiResponse]);
     } catch (err) {
@@ -59,7 +65,7 @@ export function AIAssistant() {
         {
           id: Date.now() + 2,
           role: 'assistant',
-          content: 'Sorry — I could not reach the assistant API. Check that the backend is running and API keys are configured.',
+          content: 'Sorry — I could not reach Asta. Check that the backend is running.',
           timestamp: new Date(),
         },
       ]);
@@ -70,6 +76,24 @@ export function AIAssistant() {
 
   const handleSend = () => {
     void sendMessage(input);
+  };
+
+  const handleDownload = async (message: Message) => {
+    if (!message.downloadUrl) return;
+    try {
+      setDownloading(message.id);
+      const blob = await apiClient.downloadGstr1File(message.downloadUrl);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = message.downloadFilename || 'gstr1.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Download failed');
+    } finally {
+      setDownloading(null);
+    }
   };
 
   const quickActions = [
@@ -86,9 +110,8 @@ export function AIAssistant() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-blue-600" />
-              AI Compliance Assistant
+              Asta
             </CardTitle>
-            <CardDescription>Gemini-backed assistant with invoice context and compliance knowledge</CardDescription>
           </CardHeader>
           <CardContent className="flex-1 flex flex-col min-h-0">
             <ScrollArea className="flex-1 pr-4 -mr-4">
@@ -111,6 +134,22 @@ export function AIAssistant() {
                       }`}
                     >
                       {message.content}
+                      {message.downloadUrl && (
+                        <div className="mt-3">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="bg-white"
+                            disabled={downloading === message.id}
+                            onClick={() => void handleDownload(message)}
+                          >
+                            <Download className="w-4 h-4 mr-2" />
+                            {downloading === message.id
+                              ? 'Downloading…'
+                              : message.downloadLabel || 'Download GSTR-1'}
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -120,7 +159,7 @@ export function AIAssistant() {
               <Input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask about GST, deadlines, HSN…"
+                placeholder="Ask Asta about GST, deadlines, HSN…"
                 onKeyDown={(e) => e.key === 'Enter' && handleSend()}
                 disabled={busy}
               />
@@ -134,7 +173,6 @@ export function AIAssistant() {
         <Card>
           <CardHeader>
             <CardTitle>Quick actions</CardTitle>
-            <CardDescription>Send a guided prompt</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             {quickActions.map((action) => (

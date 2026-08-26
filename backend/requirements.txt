@@ -9,11 +9,10 @@ passlib[bcrypt]
 python-jose[cryptography]
 email-validator
 python-multipart
-rapidocr-onnxruntime
 pymupdf
 pdfplumber
 pillow
-opencv-python
+pytesseract
 numpy
 google-genai
 openpyxl

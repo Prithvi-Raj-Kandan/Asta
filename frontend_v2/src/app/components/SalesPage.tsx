@@ -1,19 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Badge } from './ui/badge';
-import { Search, Download, Filter, Plus, Eye, Edit, Trash2 } from 'lucide-react';
+import { Search, Filter, Plus, Eye, Edit, Trash2 } from 'lucide-react';
 import { apiClient, InvoiceRow } from '../../api/client';
-import { toast } from 'sonner';
 
 export function SalesPage() {
+  const navigate = useNavigate();
   const [rows, setRows] = useState<InvoiceRow[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     void loadSales();
@@ -71,25 +71,6 @@ export function SalesPage() {
 
   const totalSales = filteredSales.reduce((sum, sale) => sum + (sale.total_value || 0), 0);
 
-  const handleExportGstr1 = async () => {
-    const period = new Date().toISOString().slice(0, 7);
-    try {
-      setExporting(true);
-      const blob = await apiClient.exportGstr1(period, 'csv');
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `gstr1_${period}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success(`Exported GSTR-1 for ${period}`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Export failed');
-    } finally {
-      setExporting(false);
-    }
-  };
-
   return (
     <div className="p-6 space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-1 lg:grid-cols-2 gap-4">
@@ -109,15 +90,11 @@ export function SalesPage() {
               <CardDescription>Confirmed sale-bill rows from the database</CardDescription>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" disabled title="Filter is not available yet">
                 <Filter className="w-4 h-4 mr-2" />
                 Filter
               </Button>
-              <Button variant="outline" size="sm" disabled={exporting} onClick={() => void handleExportGstr1()}>
-                <Download className="w-4 h-4 mr-2" />
-                {exporting ? 'Exporting…' : 'Export GSTR-1'}
-              </Button>
-              <Button size="sm">
+              <Button size="sm" onClick={() => navigate('/upload')}>
                 <Plus className="w-4 h-4 mr-2" />
                 Add Sale
               </Button>
@@ -141,43 +118,47 @@ export function SalesPage() {
             </div>
           </div>
 
-          <div className="border rounded-lg overflow-hidden">
+          <div className="border rounded-lg">
             {loading ? (
               <div className="py-8 text-center text-gray-500">Loading sales rows...</div>
             ) : (
               <>
-                <Table className="table-fixed">
+                <Table className="min-w-[980px]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[14%]">Invoice No.</TableHead>
-                      <TableHead className="w-[12%]">Date</TableHead>
-                      <TableHead className="w-[18%]">Customer</TableHead>
-                      <TableHead className="w-[16%]">GSTIN/UIN</TableHead>
-                      <TableHead className="w-[12%] text-right">Taxable Value</TableHead>
-                      <TableHead className="w-[12%] text-right">Total</TableHead>
-                      <TableHead className="w-[8%]">Status</TableHead>
-                      <TableHead className="w-[8%] text-right">Actions</TableHead>
+                      <TableHead className="w-[140px]">Invoice No.</TableHead>
+                      <TableHead className="w-[120px]">Date</TableHead>
+                      <TableHead className="w-[200px]">Customer</TableHead>
+                      <TableHead className="w-[160px]">GSTIN/UIN</TableHead>
+                      <TableHead className="w-[120px] text-right">Taxable Value</TableHead>
+                      <TableHead className="w-[120px] text-right">Total</TableHead>
+                      <TableHead className="w-[120px]">Status</TableHead>
+                      <TableHead className="w-[140px] text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredSales.map((sale) => (
                       <TableRow key={sale.id}>
-                        <TableCell className="font-medium">{sale.invoice_number}</TableCell>
+                        <TableCell className="font-medium max-w-[140px] truncate">{sale.invoice_number}</TableCell>
                         <TableCell>{sale.invoice_date || '-'}</TableCell>
-                        <TableCell>{sale.party_name || '-'}</TableCell>
-                        <TableCell className="text-xs text-gray-600">{sale.party_gstin || '-'}</TableCell>
+                        <TableCell className="max-w-[200px] truncate" title={sale.party_name || '-'}>
+                          {sale.party_name || '-'}
+                        </TableCell>
+                        <TableCell className="text-xs text-gray-600 max-w-[160px] truncate" title={sale.party_gstin || '-'}>
+                          {sale.party_gstin || '-'}
+                        </TableCell>
                         <TableCell className="text-right">₹{(sale.taxable_value || 0).toLocaleString()}</TableCell>
                         <TableCell className="text-right font-semibold">₹{(sale.total_value || 0).toLocaleString()}</TableCell>
                         <TableCell>{getStatusBadge(sale.status)}</TableCell>
                         <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <Button variant="ghost" size="sm">
+                          <div className="flex items-center justify-end gap-1 min-w-[124px]">
+                            <Button variant="ghost" size="sm" disabled title="View is not available yet">
                               <Eye className="w-4 h-4" />
                             </Button>
-                            <Button variant="ghost" size="sm">
+                            <Button variant="ghost" size="sm" disabled title="Edit is not available yet">
                               <Edit className="w-4 h-4" />
                             </Button>
-                            <Button variant="ghost" size="sm">
+                            <Button variant="ghost" size="sm" disabled title="Delete is not available yet">
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           </div>

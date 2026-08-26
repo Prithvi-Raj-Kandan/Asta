@@ -6,7 +6,8 @@ from typing import Optional
 
 import fitz
 import pdfplumber
-from rapidocr_onnxruntime import RapidOCR
+import pytesseract
+from PIL import Image
 
 
 @dataclass(slots=True)
@@ -39,12 +40,29 @@ class OCRServiceError(RuntimeError):
     pass
 
 
+def _configure_tesseract() -> None:
+    if getattr(pytesseract.pytesseract, "tesseract_cmd", None) and Path(
+        str(pytesseract.pytesseract.tesseract_cmd)
+    ).exists():
+        return
+    candidates = [
+        Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
+        Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
+        Path("/usr/bin/tesseract"),
+        Path("/usr/local/bin/tesseract"),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            pytesseract.pytesseract.tesseract_cmd = str(candidate)
+            return
+
+
 class LocalOCRService:
-    """Offline OCR service that prefers PDF text extraction and falls back to RapidOCR."""
+    """Local-only OCR: PDF text extraction first, then Tesseract for images/scans."""
 
     def __init__(self) -> None:
-        self._engine = RapidOCR()
-        self.engine_name = "rapidocr-onnxruntime"
+        _configure_tesseract()
+        self.engine_name = "tesseract"
         self.text_threshold = 80
 
     def extract(self, file_path: Path) -> OCRExtractionResult:
@@ -56,7 +74,7 @@ class LocalOCRService:
             return self._extract_pdf(file_path)
 
         if suffix in {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}:
-            page = self._ocr_image(self._preprocess_image_bytes(file_path.read_bytes()), 1)
+            page = self._ocr_image_path(file_path, 1)
             return OCRExtractionResult(
                 engine=self.engine_name,
                 source_type="image",
@@ -83,7 +101,7 @@ class LocalOCRService:
                     continue
 
                 pixmap = page.get_pixmap(matrix=fitz.Matrix(3, 3), alpha=False)
-                ocr_page = self._ocr_image(self._preprocess_image_bytes(pixmap.tobytes("png")), index)
+                ocr_page = self._ocr_image_bytes(pixmap.tobytes("png"), index)
                 text_pages.append(ocr_page)
 
         if not text_pages:
@@ -106,45 +124,77 @@ class LocalOCRService:
             pages=text_pages,
         )
 
-    @staticmethod
-    def _preprocess_image_bytes(image_content: bytes) -> bytes:
+    def _ocr_image_path(self, file_path: Path, page_number: int) -> OCRPageText:
+        image = self._preprocess_pil(Image.open(file_path))
+        return self._run_tesseract(image, page_number)
+
+    def _ocr_image_bytes(self, image_content: bytes, page_number: int) -> OCRPageText:
+        from io import BytesIO
+
+        image = self._preprocess_pil(Image.open(BytesIO(image_content)))
+        return self._run_tesseract(image, page_number)
+
+    def _run_tesseract(self, image: Image.Image, page_number: int) -> OCRPageText:
         try:
-            import cv2
-            import numpy as np
+            data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
+            lines: list[str] = []
+            confidences: list[float] = []
+            current_line_num = None
+            current_words: list[str] = []
 
-            array = np.frombuffer(image_content, dtype=np.uint8)
-            image = cv2.imdecode(array, cv2.IMREAD_COLOR)
-            if image is None:
-                return image_content
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            height, width = gray.shape
-            if max(height, width) < 1400:
-                scale = 1400 / max(height, width)
-                gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
-            gray = cv2.bilateralFilter(gray, 7, 50, 50)
-            binary = cv2.adaptiveThreshold(
-                gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 11
+            n = len(data.get("text", []))
+            for i in range(n):
+                word = (data["text"][i] or "").strip()
+                conf_raw = data["conf"][i]
+                try:
+                    conf = float(conf_raw)
+                except (TypeError, ValueError):
+                    conf = -1.0
+                line_num = data["line_num"][i]
+                if not word:
+                    continue
+                if current_line_num is None:
+                    current_line_num = line_num
+                if line_num != current_line_num:
+                    if current_words:
+                        lines.append(" ".join(current_words))
+                    current_words = [word]
+                    current_line_num = line_num
+                else:
+                    current_words.append(word)
+                if conf >= 0:
+                    confidences.append(conf / 100.0)
+
+            if current_words:
+                lines.append(" ".join(current_words))
+
+            if not lines:
+                text = self._clean_text(pytesseract.image_to_string(image))
+            else:
+                text = self._clean_text("\n".join(lines))
+
+            confidence = round(sum(confidences) / len(confidences), 4) if confidences else None
+            return OCRPageText(
+                page_number=page_number,
+                text=text,
+                line_count=self._count_lines(text),
+                confidence=confidence,
             )
-            _ok, encoded = cv2.imencode(".png", binary)
-            return encoded.tobytes() if _ok else image_content
-        except Exception:
-            return image_content
+        except Exception as exc:
+            raise OCRServiceError(
+                "Tesseract OCR failed. Install Tesseract OCR locally and ensure it is on PATH."
+            ) from exc
 
-    def _ocr_image(self, image_content: bytes, page_number: int) -> OCRPageText:
-        result, _elapsed = self._engine(image_content)
-        if not result:
-            return OCRPageText(page_number=page_number, text="", line_count=0, confidence=None)
-
-        ordered_lines = [item[1].strip() for item in result if len(item) >= 3 and item[1]]
-        confidences = [float(item[2]) for item in result if len(item) >= 3 and item[2] is not None]
-        text = self._clean_text("\n".join(ordered_lines))
-        confidence = round(sum(confidences) / len(confidences), 4) if confidences else None
-        return OCRPageText(
-            page_number=page_number,
-            text=text,
-            line_count=self._count_lines(text),
-            confidence=confidence,
-        )
+    @staticmethod
+    def _preprocess_pil(image: Image.Image) -> Image.Image:
+        gray = image.convert("L")
+        width, height = gray.size
+        longest = max(width, height)
+        if longest < 1400:
+            scale = 1400 / longest
+            gray = gray.resize((int(width * scale), int(height * scale)), Image.Resampling.LANCZOS)
+        # Simple contrast stretch via point transform
+        return gray.point(lambda x: 0 if x < 40 else (255 if x > 210 else x))
 
     @staticmethod
     def _clean_text(text: str) -> str:

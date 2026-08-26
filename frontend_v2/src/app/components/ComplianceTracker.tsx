@@ -164,7 +164,7 @@ export function ComplianceTracker() {
                         onClick={() => void handleExport(compliance)}
                       >
                         <FileDown className="w-4 h-4 mr-1" />
-                        Export CSV
+                        AI Generate
                       </Button>
                     )}
                     <Button size="sm" onClick={() => setPendingFile(compliance)}>

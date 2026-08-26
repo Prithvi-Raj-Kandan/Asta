@@ -337,6 +337,19 @@ class ApiClient {
     return response.json();
   }
 
+  async downloadGstr1File(path: string): Promise<Blob> {
+    const url = path.startsWith("http") ? path : `http://localhost:8000${path.startsWith("/") ? path : `/${path}`}`;
+    const response = await fetch(url, {
+      method: "GET",
+      headers: this.getHeaders(true),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      throw new Error(errorData?.detail || "Download failed");
+    }
+    return response.blob();
+  }
+
   async exportGstr1(filingPeriod: string, format: "csv" | "xlsx" = "csv"): Promise<Blob> {
     const response = await fetch(`${API_BASE_URL}/filings/gstr1/export`, {
       method: "POST",
@@ -388,7 +401,16 @@ class ApiClient {
     return response.json();
   }
 
-  async chat(message: string, sessionId?: string) {
+  async chat(message: string, sessionId?: string): Promise<{
+    session_id: string;
+    reply: string;
+    intent: string;
+    agents_used: string[];
+    citations: { source?: string; excerpt?: string }[];
+    download_url?: string | null;
+    download_filename?: string | null;
+    download_label?: string | null;
+  }> {
     const response = await fetch(`${API_BASE_URL}/chat/`, {
       method: "POST",
       headers: this.getHeaders(true),

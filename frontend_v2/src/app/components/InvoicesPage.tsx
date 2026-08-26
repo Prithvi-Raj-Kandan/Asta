@@ -1,21 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Badge } from './ui/badge';
-import { Search, Download, Filter, Plus, Eye, Edit, Trash2, FileText } from 'lucide-react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Search, Filter, Plus, Eye, Edit, Trash2, FileText } from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger } from './ui/tabs';
 import { apiClient, InvoiceRow } from '../../api/client';
-import { toast } from 'sonner';
 
 export function InvoicesPage() {
+  const navigate = useNavigate();
   const [rows, setRows] = useState<InvoiceRow[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     void loadInvoices();
@@ -33,8 +33,8 @@ export function InvoicesPage() {
   const loadInvoices = async () => {
     try {
       const data = await apiClient.listInvoices();
-      const rows = Array.isArray(data) ? data : [];
-      setRows(rows);
+      const nextRows = Array.isArray(data) ? data : [];
+      setRows(nextRows);
       setError('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load invoices');
@@ -95,28 +95,8 @@ export function InvoicesPage() {
   const totalTaxable = filteredInvoices.reduce((sum, inv) => sum + (inv.taxable_value || 0), 0);
   const totalCount = filteredInvoices.length;
 
-  const handleExportGstr1 = async () => {
-    const period = new Date().toISOString().slice(0, 7);
-    try {
-      setExporting(true);
-      const blob = await apiClient.exportGstr1(period, 'csv');
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `gstr1_${period}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success(`Exported GSTR-1 for ${period}`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Export failed');
-    } finally {
-      setExporting(false);
-    }
-  };
-
   return (
     <div className="p-6 space-y-6">
-      {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-6">
@@ -144,7 +124,6 @@ export function InvoicesPage() {
         </Card>
       </div>
 
-      {/* Invoices Table */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -153,15 +132,11 @@ export function InvoicesPage() {
               <CardDescription>Centralized database of confirmed OCR rows and manual entries</CardDescription>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" disabled title="Filter is not available yet">
                 <Filter className="w-4 h-4 mr-2" />
                 Filter
               </Button>
-              <Button variant="outline" size="sm" disabled={exporting} onClick={() => void handleExportGstr1()}>
-                <Download className="w-4 h-4 mr-2" />
-                {exporting ? 'Exporting…' : 'Export GSTR-1'}
-              </Button>
-              <Button size="sm">
+              <Button size="sm" onClick={() => navigate('/upload')}>
                 <Plus className="w-4 h-4 mr-2" />
                 Create Invoice
               </Button>
@@ -197,35 +172,41 @@ export function InvoicesPage() {
             </div>
           </div>
 
-          <div className="border rounded-lg overflow-hidden">
-            <Table className="table-fixed">
+          <div className="border rounded-lg">
+            <Table className="min-w-[1280px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Invoice No.</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Party Name</TableHead>
-                  <TableHead>GSTIN/UIN</TableHead>
-                  <TableHead className="text-right">Taxable Value</TableHead>
-                  <TableHead className="text-right">CGST</TableHead>
-                  <TableHead className="text-right">SGST</TableHead>
-                  <TableHead className="text-right">IGST</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="w-[140px]">Invoice No.</TableHead>
+                  <TableHead className="w-[120px]">Type</TableHead>
+                  <TableHead className="w-[110px]">Date</TableHead>
+                  <TableHead className="w-[180px]">Party Name</TableHead>
+                  <TableHead className="w-[160px]">GSTIN/UIN</TableHead>
+                  <TableHead className="w-[110px] text-right">Taxable Value</TableHead>
+                  <TableHead className="w-[90px] text-right">CGST</TableHead>
+                  <TableHead className="w-[90px] text-right">SGST</TableHead>
+                  <TableHead className="w-[90px] text-right">IGST</TableHead>
+                  <TableHead className="w-[110px] text-right">Total</TableHead>
+                  <TableHead className="w-[120px]">Status</TableHead>
+                  <TableHead className="w-[140px] text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredInvoices.map((invoice) => (
                   <TableRow key={invoice.id}>
-                    <TableCell className="font-medium flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-gray-400" />
-                      {invoice.invoice_number}
+                    <TableCell className="font-medium max-w-[140px] truncate" title={invoice.invoice_number}>
+                      <span className="inline-flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-gray-400 shrink-0" />
+                        <span className="truncate">{invoice.invoice_number}</span>
+                      </span>
                     </TableCell>
                     <TableCell>{getTypeBadge(invoice.document_type)}</TableCell>
                     <TableCell>{invoice.invoice_date || '-'}</TableCell>
-                    <TableCell>{invoice.party_name || '-'}</TableCell>
-                    <TableCell className="text-xs text-gray-600">{invoice.party_gstin || '-'}</TableCell>
+                    <TableCell className="max-w-[180px] truncate" title={invoice.party_name || '-'}>
+                      {invoice.party_name || '-'}
+                    </TableCell>
+                    <TableCell className="text-xs text-gray-600 max-w-[160px] truncate" title={invoice.party_gstin || '-'}>
+                      {invoice.party_gstin || '-'}
+                    </TableCell>
                     <TableCell className="text-right">₹{(invoice.taxable_value || 0).toLocaleString()}</TableCell>
                     <TableCell className="text-right">₹{(invoice.cgst_amount || 0).toLocaleString()}</TableCell>
                     <TableCell className="text-right">₹{(invoice.sgst_amount || 0).toLocaleString()}</TableCell>
@@ -233,14 +214,14 @@ export function InvoicesPage() {
                     <TableCell className="text-right font-semibold">₹{(invoice.total_value || 0).toLocaleString()}</TableCell>
                     <TableCell>{getStatusBadge(invoice.status)}</TableCell>
                     <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="sm">
+                      <div className="flex items-center justify-end gap-1 min-w-[124px]">
+                        <Button variant="ghost" size="sm" disabled title="View is not available yet">
                           <Eye className="w-4 h-4" />
                         </Button>
-                        <Button variant="ghost" size="sm">
+                        <Button variant="ghost" size="sm" disabled title="Edit is not available yet">
                           <Edit className="w-4 h-4" />
                         </Button>
-                        <Button variant="ghost" size="sm">
+                        <Button variant="ghost" size="sm" disabled title="Delete is not available yet">
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       </div>
@@ -258,10 +239,7 @@ export function InvoicesPage() {
             <div>Showing {filteredInvoices.length} of {rows.length} records</div>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" disabled>Previous</Button>
-              <Button variant="outline" size="sm">Next</Button>
-              {rows.length === 0 && !loading && (
-                <div className="border-t p-4 text-sm text-gray-500">No invoice rows exist yet. Confirm an OCR draft to create the first record.</div>
-              )}
+              <Button variant="outline" size="sm" disabled>Next</Button>
             </div>
           </div>
         </CardContent>

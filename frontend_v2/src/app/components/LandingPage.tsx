@@ -76,7 +76,7 @@ export function LandingPage({ onGetStarted, onLogin }: LandingPageProps) {
             },
             {
               icon: Sparkles,
-              title: 'AI Assistant',
+              title: 'Asta',
               description: 'Generate compliance documents instantly. Get answers to tax and regulatory questions.',
               color: 'pink'
             },

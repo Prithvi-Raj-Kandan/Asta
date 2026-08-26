@@ -60,33 +60,6 @@ class LLMService:
         )
         return (response.text or "").strip()
 
-    def complete_from_image(
-        self,
-        system: str,
-        user: str,
-        image_bytes: bytes,
-        mime_type: str = "image/jpeg",
-        *,
-        max_tokens: int = 2048,
-    ) -> dict[str, Any]:
-        from google.genai import types
-
-        client = self._get_client()
-        response = client.models.generate_content(
-            model=self.model,
-            contents=[
-                user,
-                types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
-            ],
-            config=types.GenerateContentConfig(
-                system_instruction=system,
-                temperature=0,
-                max_output_tokens=max_tokens,
-                response_mime_type="application/json",
-            ),
-        )
-        return self._parse_json((response.text or "").strip())
-
     def complete_json(
         self,
         system: str,

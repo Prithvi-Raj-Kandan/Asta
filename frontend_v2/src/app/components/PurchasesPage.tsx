@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Badge } from './ui/badge';
-import { Search, Download, Filter, Plus, Eye, Edit, Trash2 } from 'lucide-react';
+import { Search, Filter, Plus, Eye, Edit, Trash2 } from 'lucide-react';
 import { apiClient, InvoiceRow } from '../../api/client';
 
 type PurchaseRecord = {
@@ -25,6 +26,7 @@ type PurchaseRecord = {
 };
 
 export function PurchasesPage() {
+  const navigate = useNavigate();
   const [rows, setRows] = useState<PurchaseRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -64,7 +66,7 @@ export function PurchasesPage() {
           sgst: row.sgst_amount || 0,
           igst: row.igst_amount || 0,
           totalAmount: row.total_value || 0,
-          paymentStatus: row.status === 'confirmed' ? 'paid' : 'pending',
+          paymentStatus: row.status === 'confirmed' ? 'paid' : 'pending' as const,
           documentRef: row.id,
         }));
 
@@ -73,7 +75,6 @@ export function PurchasesPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load purchase rows');
       setRows([]);
-      const totalPurchases = filteredPurchases.reduce((sum, purchase) => sum + purchase.totalAmount, 0);
     } finally {
       setLoading(false);
     }
@@ -102,7 +103,6 @@ export function PurchasesPage() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
           <CardContent className="pt-6">
@@ -112,7 +112,6 @@ export function PurchasesPage() {
         </Card>
       </div>
 
-      {/* Purchases Table */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -121,15 +120,11 @@ export function PurchasesPage() {
               <CardDescription>Complete database of all purchase transactions</CardDescription>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" disabled title="Filter is not available yet">
                 <Filter className="w-4 h-4 mr-2" />
                 Filter
               </Button>
-              <Button variant="outline" size="sm">
-                <Download className="w-4 h-4 mr-2" />
-                Export
-              </Button>
-              <Button size="sm">
+              <Button size="sm" onClick={() => navigate('/upload')}>
                 <Plus className="w-4 h-4 mr-2" />
                 Add Purchase
               </Button>
@@ -155,46 +150,46 @@ export function PurchasesPage() {
             </div>
           </div>
 
-          <div className="border rounded-lg overflow-hidden">
+          <div className="border rounded-lg">
             {loading ? (
               <div className="py-8 text-center text-gray-500">Loading purchase rows...</div>
             ) : (
-              <Table>
+              <Table className="min-w-[1080px]">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Bill No.</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Vendor</TableHead>
-                    <TableHead>GSTIN</TableHead>
-                    <TableHead>Items</TableHead>
-                    <TableHead className="text-right">Qty</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    <TableHead className="w-[130px]">Bill No.</TableHead>
+                    <TableHead className="w-[110px]">Date</TableHead>
+                    <TableHead className="w-[180px]">Vendor</TableHead>
+                    <TableHead className="w-[160px]">GSTIN</TableHead>
+                    <TableHead className="w-[120px]">Items</TableHead>
+                    <TableHead className="w-[70px] text-right">Qty</TableHead>
+                    <TableHead className="w-[110px] text-right">Amount</TableHead>
+                    <TableHead className="w-[110px] text-right">Total</TableHead>
+                    <TableHead className="w-[120px]">Status</TableHead>
+                    <TableHead className="w-[140px] text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredPurchases.map((purchase) => (
                     <TableRow key={purchase.id}>
-                      <TableCell className="font-medium">{purchase.billNo}</TableCell>
+                      <TableCell className="font-medium max-w-[130px] truncate">{purchase.billNo}</TableCell>
                       <TableCell>{purchase.date}</TableCell>
-                      <TableCell>{purchase.vendorName}</TableCell>
-                      <TableCell className="text-xs text-gray-600">{purchase.vendorGSTIN}</TableCell>
-                      <TableCell>{purchase.items}</TableCell>
+                      <TableCell className="max-w-[180px] truncate" title={purchase.vendorName}>{purchase.vendorName}</TableCell>
+                      <TableCell className="text-xs text-gray-600 max-w-[160px] truncate" title={purchase.vendorGSTIN}>{purchase.vendorGSTIN}</TableCell>
+                      <TableCell className="max-w-[120px] truncate">{purchase.items}</TableCell>
                       <TableCell className="text-right">{purchase.quantity}</TableCell>
                       <TableCell className="text-right">₹{purchase.amount.toLocaleString()}</TableCell>
                       <TableCell className="text-right font-semibold">₹{purchase.totalAmount.toLocaleString()}</TableCell>
                       <TableCell>{getStatusBadge(purchase.paymentStatus)}</TableCell>
                       <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="sm">
+                        <div className="flex items-center justify-end gap-1 min-w-[124px]">
+                          <Button variant="ghost" size="sm" disabled title="View is not available yet">
                             <Eye className="w-4 h-4" />
                           </Button>
-                          <Button variant="ghost" size="sm">
+                          <Button variant="ghost" size="sm" disabled title="Edit is not available yet">
                             <Edit className="w-4 h-4" />
                           </Button>
-                          <Button variant="ghost" size="sm">
+                          <Button variant="ghost" size="sm" disabled title="Delete is not available yet">
                             <Trash2 className="w-4 h-4" />
                           </Button>
                         </div>
@@ -210,7 +205,7 @@ export function PurchasesPage() {
             <div>Showing {filteredPurchases.length} of {rows.length} records</div>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" disabled>Previous</Button>
-              <Button variant="outline" size="sm">Next</Button>
+              <Button variant="outline" size="sm" disabled>Next</Button>
             </div>
           </div>
         </CardContent>

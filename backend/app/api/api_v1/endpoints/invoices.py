@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from ....core.security import decode_access_token
 from ....db.session import get_db
 from ....models.reflected import DocumentGenerated, ExtractionJob, Invoice, InvoiceLineItem, UserSimple
-from ....schemas.extraction import ConfirmDraftRequest, InvoiceListRow
+from ....schemas.extraction import ConfirmDraftRequest, InvoiceListRow, InvoiceUpdateRequest
 from ....services.user_identity import resolve_primary_user_id
 
 router = APIRouter()
@@ -379,3 +379,75 @@ def create_invoice_from_draft(
     db: Session = Depends(get_db)
 ):
     return confirm_draft_to_invoice(payload, authorization, db)
+
+
+@router.get("/{invoice_id}", response_model=InvoiceListRow)
+def get_invoice(
+    invoice_id: str,
+    authorization: str | None = Header(None, alias="Authorization"),
+    db: Session = Depends(get_db),
+):
+    user_id = get_current_user_id(authorization, db)
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id, Invoice.userid == user_id).first()
+    if not invoice:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    return _invoice_row_from_invoice(invoice)
+
+
+@router.patch("/{invoice_id}", response_model=InvoiceListRow)
+def update_invoice(
+    invoice_id: str,
+    payload: InvoiceUpdateRequest,
+    authorization: str | None = Header(None, alias="Authorization"),
+    db: Session = Depends(get_db),
+):
+    user_id = get_current_user_id(authorization, db)
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id, Invoice.userid == user_id).first()
+    if not invoice:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+
+    mapping: dict = {}
+    if payload.invoice_number is not None:
+        mapping["invoicenumber"] = payload.invoice_number
+    if payload.invoice_date is not None:
+        mapping["invoicedate"] = _to_date(payload.invoice_date)
+        if mapping["invoicedate"]:
+            mapping["filingperiod"] = mapping["invoicedate"].strftime("%Y-%m")
+    if payload.party_name is not None:
+        mapping["partyname"] = payload.party_name
+        mapping["buyername"] = payload.party_name
+    if payload.party_gstin is not None:
+        mapping["buyergstin"] = payload.party_gstin
+    if payload.taxable_value is not None:
+        mapping["taxablevalue"] = Decimal(str(payload.taxable_value))
+    if payload.total_value is not None:
+        mapping["totalvalue"] = Decimal(str(payload.total_value))
+    if payload.document_type is not None:
+        mapping["documenttype"] = _normalize_document_type_for_db(payload.document_type)
+    if payload.status is not None:
+        mapping["status"] = payload.status
+
+    if mapping:
+        _map_and_set(invoice, mapping)
+        db.commit()
+        db.refresh(invoice)
+
+    return _invoice_row_from_invoice(invoice)
+
+
+@router.delete("/{invoice_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_invoice(
+    invoice_id: str,
+    authorization: str | None = Header(None, alias="Authorization"),
+    db: Session = Depends(get_db),
+):
+    user_id = get_current_user_id(authorization, db)
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id, Invoice.userid == user_id).first()
+    if not invoice:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+
+    db.query(InvoiceLineItem).filter(InvoiceLineItem.invoiceid == invoice_id).delete(synchronize_session=False)
+    db.query(DocumentGenerated).filter(DocumentGenerated.invoiceid == invoice_id).delete(synchronize_session=False)
+    db.delete(invoice)
+    db.commit()
+    return None
