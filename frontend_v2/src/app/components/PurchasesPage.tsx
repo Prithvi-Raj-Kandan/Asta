@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Badge } from './ui/badge';
-import { Search, Filter, Plus, Eye, Edit, Trash2 } from 'lucide-react';
+import { Plus, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { apiClient, InvoiceRow } from '../../api/client';
+import { InvoiceRowActions } from './invoices/InvoiceRowActions';
+import { ManualInvoiceDialog } from './invoices/ManualInvoiceDialog';
+import { ListToolbar, FilterOptions } from './invoices/ListToolbar';
 
 type PurchaseRecord = {
   id: string;
@@ -21,16 +22,24 @@ type PurchaseRecord = {
   sgst: number;
   igst: number;
   totalAmount: number;
-  paymentStatus: 'paid' | 'pending' | 'overdue';
+  paymentStatus: string;
   documentRef: string;
+  sourceType: string;
 };
 
 export function PurchasesPage() {
-  const navigate = useNavigate();
   const [rows, setRows] = useState<PurchaseRecord[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const [filters, setFilters] = useState<FilterOptions>({
+    search: '',
+    status: 'all',
+    dateFrom: '',
+    dateTo: '',
+    sortBy: sessionStorage.getItem('purchases-list-sort') || 'date',
+    sortDirection: (sessionStorage.getItem('purchases-list-sortDir') as 'asc' | 'desc') || 'desc',
+  });
 
   useEffect(() => {
     void loadPurchases();
@@ -66,8 +75,9 @@ export function PurchasesPage() {
           sgst: row.sgst_amount || 0,
           igst: row.igst_amount || 0,
           totalAmount: row.total_value || 0,
-          paymentStatus: row.status === 'confirmed' ? 'paid' : 'pending' as const,
+          paymentStatus: row.status,
           documentRef: row.id,
+          sourceType: row.source_type,
         }));
 
       setRows(purchaseRows);
@@ -80,23 +90,82 @@ export function PurchasesPage() {
     }
   };
 
-  const filteredPurchases = useMemo(() => rows.filter(purchase =>
-    purchase.billNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    purchase.vendorName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    purchase.vendorGSTIN.toLowerCase().includes(searchQuery.toLowerCase())
-  ), [rows, searchQuery]);
+  const filteredPurchases = useMemo(() => {
+    let result = rows.filter(purchase => {
+      const searchLower = filters.search.toLowerCase();
+      const matchesSearch = !searchLower || 
+        purchase.billNo.toLowerCase().includes(searchLower) ||
+        purchase.vendorName.toLowerCase().includes(searchLower) ||
+        purchase.vendorGSTIN.toLowerCase().includes(searchLower);
+
+      const matchesStatus = filters.status === 'all' || purchase.paymentStatus === filters.status;
+
+      let matchesDate = true;
+      if (filters.dateFrom && purchase.date && purchase.date !== '-') {
+        matchesDate = matchesDate && new Date(purchase.date) >= new Date(filters.dateFrom);
+      }
+      if (filters.dateTo && purchase.date && purchase.date !== '-') {
+        matchesDate = matchesDate && new Date(purchase.date) <= new Date(filters.dateTo);
+      }
+
+      return matchesSearch && matchesStatus && matchesDate;
+    });
+
+    result.sort((a, b) => {
+      let valA: any = a.date !== '-' ? a.date : '';
+      let valB: any = b.date !== '-' ? b.date : '';
+
+      switch (filters.sortBy) {
+        case 'total':
+          valA = a.totalAmount || 0;
+          valB = b.totalAmount || 0;
+          break;
+        case 'party_name':
+          valA = a.vendorName.toLowerCase();
+          valB = b.vendorName.toLowerCase();
+          break;
+        case 'invoice_number':
+          valA = a.billNo.toLowerCase();
+          valB = b.billNo.toLowerCase();
+          break;
+        case 'date':
+        default:
+          valA = a.date !== '-' ? a.date : '';
+          valB = b.date !== '-' ? b.date : '';
+          break;
+      }
+
+      if (valA < valB) return filters.sortDirection === 'asc' ? -1 : 1;
+      if (valA > valB) return filters.sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return result;
+  }, [rows, filters]);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'paid':
-        return <Badge className="bg-green-100 text-green-700 hover:bg-green-100">Paid</Badge>;
-      case 'pending':
-        return <Badge className="bg-yellow-100 text-yellow-700 hover:bg-yellow-100">Pending</Badge>;
-      case 'overdue':
-        return <Badge className="bg-red-100 text-red-700 hover:bg-red-100">Overdue</Badge>;
+      case 'confirmed':
+        return <Badge className="bg-green-100 text-green-700 hover:bg-green-100">Paid/Confirmed</Badge>;
+      case 'review_required':
+        return <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">Review</Badge>;
+      case 'processing':
+        return <Badge className="bg-yellow-100 text-yellow-700 hover:bg-yellow-100">Processing</Badge>;
       default:
         return <Badge variant="secondary">{status}</Badge>;
     }
+  };
+
+  const handleSort = (field: string) => {
+    setFilters((prev) => {
+      const isAsc = prev.sortBy === field && prev.sortDirection === 'asc';
+      return { ...prev, sortBy: field, sortDirection: isAsc ? 'desc' : 'asc' };
+    });
+  };
+
+  const SortIcon = ({ field }: { field: string }) => {
+    if (filters.sortBy !== field) return <ArrowUpDown className="w-3 h-3 ml-1 inline-block text-gray-400" />;
+    return filters.sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 ml-1 inline-block" /> : <ArrowDown className="w-3 h-3 ml-1 inline-block" />;
   };
 
   const totalPurchases = filteredPurchases.reduce((sum, purchase) => sum + purchase.totalAmount, 0);
@@ -120,14 +189,12 @@ export function PurchasesPage() {
               <CardDescription>Complete database of all purchase transactions</CardDescription>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" disabled title="Filter is not available yet">
-                <Filter className="w-4 h-4 mr-2" />
-                Filter
-              </Button>
-              <Button size="sm" onClick={() => navigate('/upload')}>
-                <Plus className="w-4 h-4 mr-2" />
-                Add Purchase
-              </Button>
+              <ManualInvoiceDialog defaultType="purchase_bill" onSuccess={loadPurchases}>
+                <Button size="sm">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Purchase
+                </Button>
+              </ManualInvoiceDialog>
             </div>
           </div>
         </CardHeader>
@@ -138,17 +205,7 @@ export function PurchasesPage() {
             </div>
           )}
 
-          <div className="mb-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <Input
-                placeholder="Search by bill number, vendor name, or GSTIN..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-          </div>
+          <ListToolbar filters={filters} onFilterChange={setFilters} pageKey="purchases-list" />
 
           <div className="border rounded-lg">
             {loading ? (
@@ -157,14 +214,22 @@ export function PurchasesPage() {
               <Table className="min-w-[1080px]">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[130px]">Bill No.</TableHead>
-                    <TableHead className="w-[110px]">Date</TableHead>
-                    <TableHead className="w-[180px]">Vendor</TableHead>
+                    <TableHead className="w-[130px] cursor-pointer hover:bg-gray-50" onClick={() => handleSort('invoice_number')}>
+                      Bill No. <SortIcon field="invoice_number" />
+                    </TableHead>
+                    <TableHead className="w-[110px] cursor-pointer hover:bg-gray-50" onClick={() => handleSort('date')}>
+                      Date <SortIcon field="date" />
+                    </TableHead>
+                    <TableHead className="w-[180px] cursor-pointer hover:bg-gray-50" onClick={() => handleSort('party_name')}>
+                      Vendor <SortIcon field="party_name" />
+                    </TableHead>
                     <TableHead className="w-[160px]">GSTIN</TableHead>
                     <TableHead className="w-[120px]">Items</TableHead>
                     <TableHead className="w-[70px] text-right">Qty</TableHead>
                     <TableHead className="w-[110px] text-right">Amount</TableHead>
-                    <TableHead className="w-[110px] text-right">Total</TableHead>
+                    <TableHead className="w-[110px] text-right cursor-pointer hover:bg-gray-50" onClick={() => handleSort('total')}>
+                      Total <SortIcon field="total" />
+                    </TableHead>
                     <TableHead className="w-[120px]">Status</TableHead>
                     <TableHead className="w-[140px] text-right">Actions</TableHead>
                   </TableRow>
@@ -182,22 +247,17 @@ export function PurchasesPage() {
                       <TableCell className="text-right font-semibold">₹{purchase.totalAmount.toLocaleString()}</TableCell>
                       <TableCell>{getStatusBadge(purchase.paymentStatus)}</TableCell>
                       <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1 min-w-[124px]">
-                          <Button variant="ghost" size="sm" disabled title="View is not available yet">
-                            <Eye className="w-4 h-4" />
-                          </Button>
-                          <Button variant="ghost" size="sm" disabled title="Edit is not available yet">
-                            <Edit className="w-4 h-4" />
-                          </Button>
-                          <Button variant="ghost" size="sm" disabled title="Delete is not available yet">
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
+                        <InvoiceRowActions invoiceId={purchase.id} sourceType={purchase.sourceType} onDeleteSuccess={loadPurchases} />
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
+            )}
+            {rows.length === 0 && !loading && (
+              <div className="border-t p-4 text-sm text-gray-500">
+                No purchase rows exist yet. Create one manually or upload a purchase bill document.
+              </div>
             )}
           </div>
 

@@ -61,8 +61,6 @@ async def validation_error_handler(request: Request, exc: ValidationError):
 
 @app.on_event("startup")
 def startup_event():
-    """Prepare reflected models, migrations, and reference seeds."""
-    prepare_reflected_models(engine)
     try:
         if __package__ in {None, ""}:
             from app.db.bootstrap import run_migrations, seed_reference_data
@@ -72,6 +70,7 @@ def startup_event():
             from .db.session import SessionLocal
 
         run_migrations(engine)
+        prepare_reflected_models(engine)
         db = SessionLocal()
         try:
             seed_reference_data(db)

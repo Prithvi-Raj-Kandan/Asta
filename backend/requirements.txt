@@ -17,3 +17,6 @@ numpy
 google-genai
 openpyxl
 pgvector
+httpx
+feedparser
+apscheduler

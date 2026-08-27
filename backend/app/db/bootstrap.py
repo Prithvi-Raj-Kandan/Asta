@@ -66,6 +66,13 @@ HSN_STARTER = [
     ("997212", "Rental services of commercial property", 18, "Services"),
 ]
 
+OBLIGATIONS_CATALOG = [
+    ("GSTR-1", "gst", "monthly", "11th of next month", "Sales Invoices, Debit/Credit Notes", "GST Portal", "https://gst.gov.in", "https://cleartax.in/s/gstr-1", "Report outward supplies of goods and services."),
+    ("GSTR-3B", "gst", "monthly", "20th of next month", "Summary of Sales & Purchases, ITC", "GST Portal", "https://gst.gov.in", "https://cleartax.in/s/gstr-3b", "Summary return and tax payment."),
+    ("LUT", "export", "annually", "Before March 31st", "Export intent, previous year turnover", "GST Portal", "https://gst.gov.in", "https://cleartax.in/s/lut-gst", "Letter of Undertaking for zero-rated exports without IGST."),
+    ("IEC", "export", "annually", "Update between Apr-Jun", "Business details, Bank cert", "DGFT Portal", "https://dgft.gov.in", "https://cleartax.in/s/iec-code", "Importer-Exporter Code update."),
+    ("SHIPPING_BILL", "export", "per_transaction", "Before export", "Export Invoice, Packing List", "ICEGATE", "https://icegate.gov.in", "https://cleartax.in/s/shipping-bill", "Customs declaration for exports.")
+]
 
 def _add_enum_value(conn, enum_name: str, value: str) -> None:
     exists = conn.execute(
@@ -90,6 +97,11 @@ def run_migrations(engine) -> None:
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         _add_enum_value(conn, "output_format", "csv")
         _add_enum_value(conn, "output_format", "xlsx")
+        
+        # New Enums for Export Compliance
+        _add_enum_value(conn, "obligation_category", "export")
+        _add_enum_value(conn, "frequency", "annually")
+        _add_enum_value(conn, "frequency", "per_transaction")
 
         conn.execute(
             text(
@@ -138,6 +150,63 @@ def run_migrations(engine) -> None:
         except Exception as exc:
             logger.warning("HNSW index create skipped: %s", exc)
 
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS obligation_catalog (
+                  obligation_type text PRIMARY KEY,
+                  category text NOT NULL,
+                  frequency text NOT NULL,
+                  due_rule text NOT NULL,
+                  data_required text NOT NULL,
+                  portal_name text,
+                  portal_url text,
+                  guide_url text,
+                  instructions text NOT NULL
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS govt_news (
+                  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                  source text NOT NULL,
+                  title text NOT NULL,
+                  url text NOT NULL,
+                  published_at timestamptz,
+                  summary text NOT NULL,
+                  raw_text text NOT NULL,
+                  ingested_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  content_hash text UNIQUE NOT NULL
+                )
+                """
+            )
+        )
+        # Phase 2.5 Extending documents_generated (assuming documents_generated is created elsewhere)
+        conn.execute(text("ALTER TABLE documents_generated ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT CURRENT_TIMESTAMP"))
+        conn.execute(text("ALTER TABLE documents_generated ADD COLUMN IF NOT EXISTS submitted_at timestamptz"))
+        conn.execute(text("ALTER TABLE documents_generated ADD COLUMN IF NOT EXISTS submission_status text"))
+        conn.execute(text("ALTER TABLE documents_generated ADD COLUMN IF NOT EXISTS external_reference text"))
+        conn.execute(text("ALTER TABLE documents_generated ADD COLUMN IF NOT EXISTS payload_snapshot jsonb"))
+
+        # Phase 5.1 Filing attempts
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS filing_attempts (
+                  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                  created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  submitted_at timestamptz,
+                  request_body jsonb,
+                  response_body jsonb,
+                  status text NOT NULL
+                )
+                """
+            )
+        )
+
     logger.info("Migrations applied")
 
 
@@ -168,4 +237,21 @@ def seed_reference_data(db: Session) -> None:
                 ),
                 {"h": hsn, "d": desc, "r": rate, "cat": category, "ef": today},
             )
+
+    for otype, cat, freq, due, data_req, pname, purl, gurl, inst in OBLIGATIONS_CATALOG:
+        exists = db.execute(text("SELECT 1 FROM obligation_catalog WHERE obligation_type = :t"), {"t": otype}).first()
+        if not exists:
+            db.execute(
+                text(
+                    """
+                    INSERT INTO obligation_catalog (obligation_type, category, frequency, due_rule, data_required, portal_name, portal_url, guide_url, instructions)
+                    VALUES (:t, :cat, :freq, :due, :data, :pname, :purl, :gurl, :inst)
+                    """
+                ),
+                {
+                    "t": otype, "cat": cat, "freq": freq, "due": due, "data": data_req,
+                    "pname": pname, "purl": purl, "gurl": gurl, "inst": inst
+                }
+            )
+
     db.commit()

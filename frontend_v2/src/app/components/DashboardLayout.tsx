@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { FileText, LayoutDashboard, Upload, Calendar, BarChart3, MessageSquare, Settings, Bell, ShoppingCart, ShoppingBag, Receipt, User, LogOut } from 'lucide-react';
+import { FileText, LayoutDashboard, Upload, Calendar, BarChart3, MessageSquare, Settings, Bell, ShoppingCart, ShoppingBag, Receipt, User, LogOut, Newspaper } from 'lucide-react';
 import { Button } from './ui/button';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { Badge } from './ui/badge';
@@ -23,6 +23,7 @@ export function DashboardLayout({ children, userName, userEmail }: DashboardLayo
     { id: 'upload', label: 'Upload', icon: Upload, path: '/upload' },
     { id: 'compliance', label: 'Compliance', icon: Calendar, path: '/compliance', badge: 3 },
     { id: 'analytics', label: 'Analytics', icon: BarChart3, path: '/analytics' },
+    { id: 'news', label: 'Govt Updates', icon: Newspaper, path: '/news' },
     { id: 'ai-assistant', label: 'Asta', icon: MessageSquare, path: '/ai-assistant' },
   ];
 
@@ -36,6 +37,7 @@ export function DashboardLayout({ children, userName, userEmail }: DashboardLayo
     if (item) return item.label;
     if (location.pathname === '/profile') return 'Profile';
     if (location.pathname === '/settings') return 'Settings';
+    if (location.pathname === '/news') return 'Govt Updates';
     return 'Dashboard';
   };
 

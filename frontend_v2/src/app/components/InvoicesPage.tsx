@@ -2,20 +2,30 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Badge } from './ui/badge';
-import { Search, Filter, Plus, Eye, Edit, Trash2, FileText } from 'lucide-react';
+import { Plus, FileText, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from './ui/tabs';
 import { apiClient, InvoiceRow } from '../../api/client';
+import { InvoiceRowActions } from './invoices/InvoiceRowActions';
+import { ManualInvoiceDialog } from './invoices/ManualInvoiceDialog';
+import { ListToolbar, FilterOptions } from './invoices/ListToolbar';
 
 export function InvoicesPage() {
   const navigate = useNavigate();
   const [rows, setRows] = useState<InvoiceRow[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const [filters, setFilters] = useState<FilterOptions>({
+    search: '',
+    status: 'all',
+    dateFrom: '',
+    dateTo: '',
+    sortBy: sessionStorage.getItem('invoices-list-sort') || 'date',
+    sortDirection: (sessionStorage.getItem('invoices-list-sortDir') as 'asc' | 'desc') || 'desc',
+  });
 
   useEffect(() => {
     void loadInvoices();
@@ -45,10 +55,12 @@ export function InvoicesPage() {
   };
 
   const filteredInvoices = useMemo(() => {
-    return rows.filter((invoice) => {
-      const matchesSearch = invoice.invoice_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (invoice.party_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (invoice.party_gstin || '').toLowerCase().includes(searchQuery.toLowerCase());
+    let result = rows.filter((invoice) => {
+      const searchLower = filters.search.toLowerCase();
+      const matchesSearch = !searchLower || 
+        invoice.invoice_number.toLowerCase().includes(searchLower) ||
+        (invoice.party_name || '').toLowerCase().includes(searchLower) ||
+        (invoice.party_gstin || '').toLowerCase().includes(searchLower);
 
       const normalizedType = (invoice.document_type || '').toLowerCase();
       const mappedType =
@@ -57,9 +69,50 @@ export function InvoicesPage() {
         normalizedType;
       const matchesTab = activeTab === 'all' || mappedType === activeTab;
 
-      return matchesSearch && matchesTab;
+      const matchesStatus = filters.status === 'all' || invoice.status === filters.status;
+
+      let matchesDate = true;
+      if (filters.dateFrom && invoice.invoice_date) {
+        matchesDate = matchesDate && new Date(invoice.invoice_date) >= new Date(filters.dateFrom);
+      }
+      if (filters.dateTo && invoice.invoice_date) {
+        matchesDate = matchesDate && new Date(invoice.invoice_date) <= new Date(filters.dateTo);
+      }
+
+      return matchesSearch && matchesTab && matchesStatus && matchesDate;
     });
-  }, [rows, searchQuery, activeTab]);
+
+    result.sort((a, b) => {
+      let valA: any = a.invoice_date || '';
+      let valB: any = b.invoice_date || '';
+
+      switch (filters.sortBy) {
+        case 'total':
+          valA = a.total_value || 0;
+          valB = b.total_value || 0;
+          break;
+        case 'party_name':
+          valA = (a.party_name || '').toLowerCase();
+          valB = (b.party_name || '').toLowerCase();
+          break;
+        case 'invoice_number':
+          valA = a.invoice_number.toLowerCase();
+          valB = b.invoice_number.toLowerCase();
+          break;
+        case 'date':
+        default:
+          valA = a.invoice_date || '';
+          valB = b.invoice_date || '';
+          break;
+      }
+
+      if (valA < valB) return filters.sortDirection === 'asc' ? -1 : 1;
+      if (valA > valB) return filters.sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return result;
+  }, [rows, filters, activeTab]);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -76,7 +129,6 @@ export function InvoicesPage() {
 
   const getTypeBadge = (type: string) => {
     const normalizedType = type.toLowerCase();
-
     switch (type) {
       case 'sale_bill':
         return <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">Sale Bill</Badge>;
@@ -89,6 +141,18 @@ export function InvoicesPage() {
       default:
         return <Badge variant="outline">{normalizedType || type}</Badge>;
     }
+  };
+
+  const handleSort = (field: string) => {
+    setFilters((prev) => {
+      const isAsc = prev.sortBy === field && prev.sortDirection === 'asc';
+      return { ...prev, sortBy: field, sortDirection: isAsc ? 'desc' : 'asc' };
+    });
+  };
+
+  const SortIcon = ({ field }: { field: string }) => {
+    if (filters.sortBy !== field) return <ArrowUpDown className="w-3 h-3 ml-1 inline-block text-gray-400" />;
+    return filters.sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 ml-1 inline-block" /> : <ArrowDown className="w-3 h-3 ml-1 inline-block" />;
   };
 
   const totalInvoices = filteredInvoices.reduce((sum, inv) => sum + (inv.total_value || 0), 0);
@@ -132,14 +196,12 @@ export function InvoicesPage() {
               <CardDescription>Centralized database of confirmed OCR rows and manual entries</CardDescription>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" disabled title="Filter is not available yet">
-                <Filter className="w-4 h-4 mr-2" />
-                Filter
-              </Button>
-              <Button size="sm" onClick={() => navigate('/upload')}>
-                <Plus className="w-4 h-4 mr-2" />
-                Create Invoice
-              </Button>
+              <ManualInvoiceDialog onSuccess={loadInvoices}>
+                <Button size="sm">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Create Invoice
+                </Button>
+              </ManualInvoiceDialog>
             </div>
           </div>
         </CardHeader>
@@ -160,32 +222,30 @@ export function InvoicesPage() {
             </div>
           )}
 
-          <div className="mb-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <Input
-                placeholder="Search by invoice number, party name, or GSTIN..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-          </div>
+          <ListToolbar filters={filters} onFilterChange={setFilters} pageKey="invoices-list" />
 
           <div className="border rounded-lg">
             <Table className="min-w-[1280px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[140px]">Invoice No.</TableHead>
+                  <TableHead className="w-[140px] cursor-pointer hover:bg-gray-50" onClick={() => handleSort('invoice_number')}>
+                    Invoice No. <SortIcon field="invoice_number" />
+                  </TableHead>
                   <TableHead className="w-[120px]">Type</TableHead>
-                  <TableHead className="w-[110px]">Date</TableHead>
-                  <TableHead className="w-[180px]">Party Name</TableHead>
+                  <TableHead className="w-[110px] cursor-pointer hover:bg-gray-50" onClick={() => handleSort('date')}>
+                    Date <SortIcon field="date" />
+                  </TableHead>
+                  <TableHead className="w-[180px] cursor-pointer hover:bg-gray-50" onClick={() => handleSort('party_name')}>
+                    Party Name <SortIcon field="party_name" />
+                  </TableHead>
                   <TableHead className="w-[160px]">GSTIN/UIN</TableHead>
                   <TableHead className="w-[110px] text-right">Taxable Value</TableHead>
                   <TableHead className="w-[90px] text-right">CGST</TableHead>
                   <TableHead className="w-[90px] text-right">SGST</TableHead>
                   <TableHead className="w-[90px] text-right">IGST</TableHead>
-                  <TableHead className="w-[110px] text-right">Total</TableHead>
+                  <TableHead className="w-[110px] text-right cursor-pointer hover:bg-gray-50" onClick={() => handleSort('total')}>
+                    Total <SortIcon field="total" />
+                  </TableHead>
                   <TableHead className="w-[120px]">Status</TableHead>
                   <TableHead className="w-[140px] text-right">Actions</TableHead>
                 </TableRow>
@@ -214,24 +274,14 @@ export function InvoicesPage() {
                     <TableCell className="text-right font-semibold">₹{(invoice.total_value || 0).toLocaleString()}</TableCell>
                     <TableCell>{getStatusBadge(invoice.status)}</TableCell>
                     <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1 min-w-[124px]">
-                        <Button variant="ghost" size="sm" disabled title="View is not available yet">
-                          <Eye className="w-4 h-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" disabled title="Edit is not available yet">
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" disabled title="Delete is not available yet">
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
+                      <InvoiceRowActions invoiceId={invoice.id} sourceType={invoice.source_type} onDeleteSuccess={loadInvoices} />
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
             {rows.length === 0 && !loading && (
-              <div className="border-t p-4 text-sm text-gray-500">No invoice rows exist yet. Confirm an OCR draft to create the first record.</div>
+              <div className="border-t p-4 text-sm text-gray-500">No invoice rows exist yet. Create one manually or upload a document.</div>
             )}
           </div>
 

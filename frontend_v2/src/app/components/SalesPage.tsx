@@ -1,19 +1,27 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Badge } from './ui/badge';
-import { Search, Filter, Plus, Eye, Edit, Trash2 } from 'lucide-react';
+import { Plus, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { apiClient, InvoiceRow } from '../../api/client';
+import { InvoiceRowActions } from './invoices/InvoiceRowActions';
+import { ManualInvoiceDialog } from './invoices/ManualInvoiceDialog';
+import { ListToolbar, FilterOptions } from './invoices/ListToolbar';
 
 export function SalesPage() {
-  const navigate = useNavigate();
   const [rows, setRows] = useState<InvoiceRow[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const [filters, setFilters] = useState<FilterOptions>({
+    search: '',
+    status: 'all',
+    dateFrom: '',
+    dateTo: '',
+    sortBy: sessionStorage.getItem('sales-list-sort') || 'date',
+    sortDirection: (sessionStorage.getItem('sales-list-sortDir') as 'asc' | 'desc') || 'desc',
+  });
 
   useEffect(() => {
     void loadSales();
@@ -45,16 +53,58 @@ export function SalesPage() {
     }
   };
 
-  const filteredSales = useMemo(
-    () =>
-      rows.filter(
-        (sale) =>
-          sale.invoice_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (sale.party_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (sale.party_gstin || '').toLowerCase().includes(searchQuery.toLowerCase())
-      ),
-    [rows, searchQuery]
-  );
+  const filteredSales = useMemo(() => {
+    let result = rows.filter((sale) => {
+      const searchLower = filters.search.toLowerCase();
+      const matchesSearch = !searchLower || 
+        sale.invoice_number.toLowerCase().includes(searchLower) ||
+        (sale.party_name || '').toLowerCase().includes(searchLower) ||
+        (sale.party_gstin || '').toLowerCase().includes(searchLower);
+
+      const matchesStatus = filters.status === 'all' || sale.status === filters.status;
+
+      let matchesDate = true;
+      if (filters.dateFrom && sale.invoice_date) {
+        matchesDate = matchesDate && new Date(sale.invoice_date) >= new Date(filters.dateFrom);
+      }
+      if (filters.dateTo && sale.invoice_date) {
+        matchesDate = matchesDate && new Date(sale.invoice_date) <= new Date(filters.dateTo);
+      }
+
+      return matchesSearch && matchesStatus && matchesDate;
+    });
+
+    result.sort((a, b) => {
+      let valA: any = a.invoice_date || '';
+      let valB: any = b.invoice_date || '';
+
+      switch (filters.sortBy) {
+        case 'total':
+          valA = a.total_value || 0;
+          valB = b.total_value || 0;
+          break;
+        case 'party_name':
+          valA = (a.party_name || '').toLowerCase();
+          valB = (b.party_name || '').toLowerCase();
+          break;
+        case 'invoice_number':
+          valA = a.invoice_number.toLowerCase();
+          valB = b.invoice_number.toLowerCase();
+          break;
+        case 'date':
+        default:
+          valA = a.invoice_date || '';
+          valB = b.invoice_date || '';
+          break;
+      }
+
+      if (valA < valB) return filters.sortDirection === 'asc' ? -1 : 1;
+      if (valA > valB) return filters.sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return result;
+  }, [rows, filters]);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -67,6 +117,18 @@ export function SalesPage() {
       default:
         return <Badge variant="secondary">{status}</Badge>;
     }
+  };
+
+  const handleSort = (field: string) => {
+    setFilters((prev) => {
+      const isAsc = prev.sortBy === field && prev.sortDirection === 'asc';
+      return { ...prev, sortBy: field, sortDirection: isAsc ? 'desc' : 'asc' };
+    });
+  };
+
+  const SortIcon = ({ field }: { field: string }) => {
+    if (filters.sortBy !== field) return <ArrowUpDown className="w-3 h-3 ml-1 inline-block text-gray-400" />;
+    return filters.sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 ml-1 inline-block" /> : <ArrowDown className="w-3 h-3 ml-1 inline-block" />;
   };
 
   const totalSales = filteredSales.reduce((sum, sale) => sum + (sale.total_value || 0), 0);
@@ -90,14 +152,12 @@ export function SalesPage() {
               <CardDescription>Confirmed sale-bill rows from the database</CardDescription>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" disabled title="Filter is not available yet">
-                <Filter className="w-4 h-4 mr-2" />
-                Filter
-              </Button>
-              <Button size="sm" onClick={() => navigate('/upload')}>
-                <Plus className="w-4 h-4 mr-2" />
-                Add Sale
-              </Button>
+              <ManualInvoiceDialog defaultType="sale_bill" onSuccess={loadSales}>
+                <Button size="sm">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Sale
+                </Button>
+              </ManualInvoiceDialog>
             </div>
           </div>
         </CardHeader>
@@ -106,17 +166,7 @@ export function SalesPage() {
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>
           )}
 
-          <div className="mb-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <Input
-                placeholder="Search by invoice number, customer name, or GSTIN..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-          </div>
+          <ListToolbar filters={filters} onFilterChange={setFilters} pageKey="sales-list" />
 
           <div className="border rounded-lg">
             {loading ? (
@@ -126,12 +176,20 @@ export function SalesPage() {
                 <Table className="min-w-[980px]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[140px]">Invoice No.</TableHead>
-                      <TableHead className="w-[120px]">Date</TableHead>
-                      <TableHead className="w-[200px]">Customer</TableHead>
+                      <TableHead className="w-[140px] cursor-pointer hover:bg-gray-50" onClick={() => handleSort('invoice_number')}>
+                        Invoice No. <SortIcon field="invoice_number" />
+                      </TableHead>
+                      <TableHead className="w-[120px] cursor-pointer hover:bg-gray-50" onClick={() => handleSort('date')}>
+                        Date <SortIcon field="date" />
+                      </TableHead>
+                      <TableHead className="w-[200px] cursor-pointer hover:bg-gray-50" onClick={() => handleSort('party_name')}>
+                        Customer <SortIcon field="party_name" />
+                      </TableHead>
                       <TableHead className="w-[160px]">GSTIN/UIN</TableHead>
                       <TableHead className="w-[120px] text-right">Taxable Value</TableHead>
-                      <TableHead className="w-[120px] text-right">Total</TableHead>
+                      <TableHead className="w-[120px] text-right cursor-pointer hover:bg-gray-50" onClick={() => handleSort('total')}>
+                        Total <SortIcon field="total" />
+                      </TableHead>
                       <TableHead className="w-[120px]">Status</TableHead>
                       <TableHead className="w-[140px] text-right">Actions</TableHead>
                     </TableRow>
@@ -151,17 +209,7 @@ export function SalesPage() {
                         <TableCell className="text-right font-semibold">₹{(sale.total_value || 0).toLocaleString()}</TableCell>
                         <TableCell>{getStatusBadge(sale.status)}</TableCell>
                         <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1 min-w-[124px]">
-                            <Button variant="ghost" size="sm" disabled title="View is not available yet">
-                              <Eye className="w-4 h-4" />
-                            </Button>
-                            <Button variant="ghost" size="sm" disabled title="Edit is not available yet">
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            <Button variant="ghost" size="sm" disabled title="Delete is not available yet">
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
+                          <InvoiceRowActions invoiceId={sale.id} sourceType={sale.source_type} onDeleteSuccess={loadSales} />
                         </TableCell>
                       </TableRow>
                     ))}
@@ -169,7 +217,7 @@ export function SalesPage() {
                 </Table>
                 {rows.length === 0 && !loading && (
                   <div className="border-t p-4 text-sm text-gray-500">
-                    No sales rows exist yet. Confirm a sale bill upload to populate this page.
+                    No sales rows exist yet. Create one manually or upload a sale bill document.
                   </div>
                 )}
               </>

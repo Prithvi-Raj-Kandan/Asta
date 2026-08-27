@@ -8,7 +8,8 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
-from ..models.reflected import ComplianceObligation, Invoice
+from ..models.reflected import ComplianceObligation, Invoice, ObligationCatalog
+from ..services.health_score import calculate_health_score
 from .base import AgentResult, BaseAgent
 
 
@@ -43,6 +44,26 @@ class DeadlineTrackerAgent(BaseAgent):
         health = self._health_score(items, db, user_id)
         alerts = [i for i in items if i["status"] in {"due_soon", "overdue"} and i["status"] != "filed"]
 
+        # Embed catalog details into items
+        catalog_cache = {}
+        for row in items:
+            ctype = row["obligation_type"]
+            if ctype not in catalog_cache:
+                cat_row = db.query(ObligationCatalog).filter(ObligationCatalog.obligation_type == ctype).first()
+                if cat_row:
+                    catalog_cache[ctype] = {
+                        "due_rule": cat_row.due_rule,
+                        "data_required": cat_row.data_required,
+                        "portal_name": cat_row.portal_name,
+                        "portal_url": cat_row.portal_url,
+                        "guide_url": cat_row.guide_url,
+                        "instructions": cat_row.instructions
+                    }
+                else:
+                    catalog_cache[ctype] = None
+            if catalog_cache[ctype]:
+                row.update(catalog_cache[ctype])
+
         return AgentResult(
             agent=self.name,
             success=True,
@@ -64,8 +85,17 @@ class DeadlineTrackerAgent(BaseAgent):
             due_gstr1 = date(due1_y, due1_m, 11)
             # GSTR-3B due ~20th of next month
             due_gstr3b = date(due1_y, due1_m, 20)
+            
+            # Export compliances (Mocked due dates for demonstration)
+            due_lut = date(y, 3, 31)
+            due_iec = date(y, 6, 30)
 
-            for obligation_type, due in (("GSTR-1", due_gstr1), ("GSTR-3B", due_gstr3b)):
+            for obligation_type, due, cat, freq in (
+                ("GSTR-1", due_gstr1, "gst", "monthly"), 
+                ("GSTR-3B", due_gstr3b, "gst", "monthly"),
+                ("LUT", due_lut, "export", "annually"),
+                ("IEC", due_iec, "export", "annually")
+            ):
                 exists = (
                     db.query(ComplianceObligation)
                     .filter(
@@ -81,8 +111,8 @@ class DeadlineTrackerAgent(BaseAgent):
                 row.id = uuid4()
                 row.userid = user_id
                 row.obligationtype = obligation_type
-                row.category = "gst"
-                row.frequency = "monthly"
+                row.category = cat
+                row.frequency = freq
                 row.periodlabel = period_label
                 row.duedate = due
                 row.status = self._status_for_due(due)
@@ -114,21 +144,8 @@ class DeadlineTrackerAgent(BaseAgent):
         return "upcoming"
 
     def _health_score(self, items: list[dict[str, Any]], db: Session, user_id: str) -> dict[str, Any]:
-        open_items = [i for i in items if i["status"] != "filed"]
-        overdue = sum(1 for i in open_items if i["status"] == "overdue")
-        due_soon = sum(1 for i in open_items if i["status"] == "due_soon")
         invoice_count = db.query(Invoice).filter(Invoice.userid == user_id).count()
-        score = 100
-        score -= overdue * 25
-        score -= due_soon * 10
-        score = max(0, min(100, score))
-        return {
-            "score": score,
-            "overdue": overdue,
-            "due_soon": due_soon,
-            "open": len(open_items),
-            "invoice_count": invoice_count,
-        }
+        return calculate_health_score(items, invoice_count)
 
     @staticmethod
     def _serialize(o: ComplianceObligation) -> dict[str, Any]:

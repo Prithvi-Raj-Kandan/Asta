@@ -92,6 +92,31 @@ def _get_user_documents(db: Session, user_id: str):
     return db.query(DocumentGenerated).filter(DocumentGenerated.userid == user_id).all()
 
 
+@router.get("/generated/documents", response_model=list[DocumentGeneratedResponse])
+def get_all_generated_documents(
+    authorization: str | None = Header(None, alias="Authorization"),
+    db: Session = Depends(get_db)
+):
+    """
+    CS205: Get all generated documents for the current user.
+    - Authorization: Bearer token (header)
+    """
+    user_id = get_current_user_id(authorization, db)
+
+    documents = _get_user_documents(db, user_id)
+    
+    return [
+        DocumentGeneratedResponse(
+            id=_get_attr(doc, "id"),
+            extraction_job_id=_document_source_id(doc),
+            document_type=_get_attr(doc, "documenttype"),
+            document_path=_get_attr(doc, "outputfilepath"),
+            generated_date=_get_attr(doc, "generatedat"),
+        )
+        for doc in documents
+    ]
+
+
 @router.get("/{file_id}/metadata", response_model=FileMetadataResponse)
 def get_file_metadata(
     file_id: str,
@@ -179,26 +204,4 @@ def get_generated_documents(
     ]
 
 
-@router.get("/generated/documents", response_model=list[DocumentGeneratedResponse])
-def get_all_generated_documents(
-    authorization: str | None = Header(None, alias="Authorization"),
-    db: Session = Depends(get_db)
-):
-    """
-    CS205: Get all generated documents for the current user.
-    - Authorization: Bearer token (header)
-    """
-    user_id = get_current_user_id(authorization, db)
 
-    documents = _get_user_documents(db, user_id)
-    
-    return [
-        DocumentGeneratedResponse(
-            id=_get_attr(doc, "id"),
-            extraction_job_id=_document_source_id(doc),
-            document_type=_get_attr(doc, "documenttype"),
-            document_path=_get_attr(doc, "outputfilepath"),
-            generated_date=_get_attr(doc, "generatedat"),
-        )
-        for doc in documents
-    ]

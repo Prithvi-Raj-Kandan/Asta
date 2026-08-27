@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from uuid import uuid4
 import os
 from pathlib import Path
+from datetime import datetime
 
 from ....db.session import get_db
 from ....models.reflected import UserSimple, ExtractionJob
@@ -242,6 +243,9 @@ def list_uploads(
     uploads = db.query(ExtractionJob).filter(
         ExtractionJob.userid == user_id
     ).all()
+
+    uploads.sort(key=lambda u: _upload_timestamp(u) or datetime.min, reverse=True)
+    uploads = uploads[:5]
     
     return [
         UploadListResponse(

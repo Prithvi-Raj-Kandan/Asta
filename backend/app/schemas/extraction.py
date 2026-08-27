@@ -78,4 +78,22 @@ class InvoiceUpdateRequest(BaseModel):
     taxable_value: Optional[float] = None
     total_value: Optional[float] = None
     document_type: Optional[str] = None
-    status: Optional[str] = None
+    status: Optional[str] = None
+
+class InvoiceDetailResponse(InvoiceListRow):
+    extraction_job_id: Optional[UUID] = None
+    has_source_file: bool = False
+    source_filename: Optional[str] = None
+    source_mime: Optional[str] = None
+
+class InvoiceCreateRequest(BaseModel):
+    document_type: str = "sale_bill"
+    invoice_number: str
+    invoice_date: str
+    party_name: str
+    party_gstin: Optional[str] = None
+    taxable_value: float
+    cgst_amount: Optional[float] = 0.0
+    sgst_amount: Optional[float] = 0.0
+    igst_amount: Optional[float] = 0.0
+    total_value: float

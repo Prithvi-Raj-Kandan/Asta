@@ -5,12 +5,13 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from ....core.security import decode_access_token
 from ....db.session import get_db
 from ....models.reflected import DocumentGenerated, ExtractionJob, Invoice, InvoiceLineItem, UserSimple
-from ....schemas.extraction import ConfirmDraftRequest, InvoiceListRow, InvoiceUpdateRequest
+from ....schemas.extraction import ConfirmDraftRequest, InvoiceListRow, InvoiceUpdateRequest, InvoiceDetailResponse, InvoiceCreateRequest
 from ....services.user_identity import resolve_primary_user_id
 
 router = APIRouter()
@@ -213,6 +214,11 @@ def confirm_draft_to_invoice(
     sgst = cgst
     igst = Decimal("0")
 
+    buyername = draft.trade_name if party_type == "customer" else None
+    buyergstin = draft.gstin_uin if party_type == "customer" else None
+    sellername = draft.trade_name if party_type == "vendor" else None
+    sellergstin = draft.gstin_uin if party_type == "vendor" else None
+
     invoice = Invoice()
     _map_and_set(invoice, {
         "id": invoice_id,
@@ -223,8 +229,10 @@ def confirm_draft_to_invoice(
         "invoicedate": invoice_date,
         "partyname": draft.trade_name,
         "partytype": party_type,
-        "buyername": draft.trade_name,
-        "buyergstin": draft.gstin_uin,
+        "buyername": buyername,
+        "buyergstin": buyergstin,
+        "sellername": sellername,
+        "sellergstin": sellergstin,
         "placeofsupply": draft.place_of_supply,
         "supplytype": None,
         "taxablevalue": taxable_value,
@@ -371,6 +379,69 @@ def list_invoices(
 
     return rows
 
+@router.post("/", response_model=InvoiceListRow, status_code=status.HTTP_201_CREATED)
+def create_manual_invoice(
+    payload: InvoiceCreateRequest,
+    authorization: str | None = Header(None, alias="Authorization"),
+    db: Session = Depends(get_db)
+):
+    user_id = get_current_user_id(authorization, db)
+    invoice_id = str(uuid4())
+    document_type_db = _normalize_document_type_for_db(payload.document_type)
+    party_type = "vendor" if document_type_db == "purchase_invoice" else "customer"
+    invoice_date = _to_date(payload.invoice_date)
+
+    buyername = payload.party_name if party_type == "customer" else None
+    buyergstin = payload.party_gstin if party_type == "customer" else None
+    sellername = payload.party_name if party_type == "vendor" else None
+    sellergstin = payload.party_gstin if party_type == "vendor" else None
+
+    invoice = Invoice()
+    _map_and_set(invoice, {
+        "id": invoice_id,
+        "userid": user_id,
+        "documenttype": document_type_db,
+        "sourcetype": "upload",
+        "invoicenumber": payload.invoice_number,
+        "invoicedate": invoice_date,
+        "partyname": payload.party_name,
+        "partytype": party_type,
+        "buyername": buyername,
+        "buyergstin": buyergstin,
+        "sellername": sellername,
+        "sellergstin": sellergstin,
+        "taxablevalue": Decimal(str(payload.taxable_value)),
+        "cgstamount": Decimal(str(payload.cgst_amount or 0)),
+        "sgstamount": Decimal(str(payload.sgst_amount or 0)),
+        "igstamount": Decimal(str(payload.igst_amount or 0)),
+        "totalvalue": Decimal(str(payload.total_value)),
+        "filingperiod": invoice_date.strftime("%Y-%m") if invoice_date else None,
+        "status": "confirmed",
+        "confirmedat": datetime.utcnow(),
+    })
+
+    invoice_line_item = InvoiceLineItem()
+    _map_and_set(invoice_line_item, {
+        "id": str(uuid4()),
+        "invoiceid": invoice_id,
+        "linenumber": 1,
+        "description": payload.party_name or payload.invoice_number or f"Invoice {invoice_id}",
+        "quantity": Decimal("1"),
+        "unit": "Nos",
+        "unitprice": Decimal(str(payload.taxable_value)),
+        "taxablevalue": Decimal(str(payload.taxable_value)),
+        "cgstamount": Decimal(str(payload.cgst_amount or 0)),
+        "sgstamount": Decimal(str(payload.sgst_amount or 0)),
+        "igstamount": Decimal(str(payload.igst_amount or 0)),
+        "linetotal": Decimal(str(payload.total_value)),
+    })
+
+    db.add(invoice)
+    db.add(invoice_line_item)
+    db.commit()
+    db.refresh(invoice)
+    return _invoice_row_from_invoice(invoice)
+
 
 @router.post("/confirm", response_model=InvoiceListRow, status_code=status.HTTP_201_CREATED)
 def create_invoice_from_draft(
@@ -381,7 +452,7 @@ def create_invoice_from_draft(
     return confirm_draft_to_invoice(payload, authorization, db)
 
 
-@router.get("/{invoice_id}", response_model=InvoiceListRow)
+@router.get("/{invoice_id}", response_model=InvoiceDetailResponse)
 def get_invoice(
     invoice_id: str,
     authorization: str | None = Header(None, alias="Authorization"),
@@ -391,7 +462,59 @@ def get_invoice(
     invoice = db.query(Invoice).filter(Invoice.id == invoice_id, Invoice.userid == user_id).first()
     if not invoice:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
-    return _invoice_row_from_invoice(invoice)
+    
+    base_row = _invoice_row_from_invoice(invoice).model_dump()
+    response = InvoiceDetailResponse(**base_row)
+    
+    # Try to find associated extraction job
+    job = db.query(ExtractionJob).filter(ExtractionJob.userid == user_id).filter(
+        ExtractionJob.extracteddata.op('->>')('confirmed_invoice_id') == invoice_id
+    ).first()
+    
+    if job:
+        response.extraction_job_id = _get_attr(job, "id")
+        file_path = _get_attr(job, "filepath")
+        if file_path and Path(file_path).exists():
+            response.has_source_file = True
+            response.source_filename = _get_attr(job, "filename")
+            response.source_mime = _get_attr(job, "filetype")
+    
+    # If not found via job, check invoice.originalfilepath
+    if not response.has_source_file:
+        orig_path = _get_attr(invoice, "originalfilepath")
+        if orig_path and Path(orig_path).exists():
+            response.has_source_file = True
+            response.source_filename = Path(orig_path).name
+            
+    return response
+
+
+@router.get("/{invoice_id}/source-file")
+def get_invoice_source_file(
+    invoice_id: str,
+    authorization: str | None = Header(None, alias="Authorization"),
+    db: Session = Depends(get_db),
+):
+    user_id = get_current_user_id(authorization, db)
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id, Invoice.userid == user_id).first()
+    if not invoice:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+        
+    file_path_str = None
+    job = db.query(ExtractionJob).filter(ExtractionJob.userid == user_id).filter(
+        ExtractionJob.extracteddata.op('->>')('confirmed_invoice_id') == invoice_id
+    ).first()
+    
+    if job:
+        file_path_str = _get_attr(job, "filepath")
+        
+    if not file_path_str:
+        file_path_str = _get_attr(invoice, "originalfilepath")
+        
+    if not file_path_str or not Path(file_path_str).exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source file not found")
+        
+    return FileResponse(file_path_str)
 
 
 @router.patch("/{invoice_id}", response_model=InvoiceListRow)
@@ -446,8 +569,31 @@ def delete_invoice(
     if not invoice:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
 
+    # 1. Clean up generated documents
+    generated_docs = db.query(DocumentGenerated).filter(DocumentGenerated.invoiceid == invoice_id).all()
+    for doc in generated_docs:
+        out_path = _get_attr(doc, "outputfilepath")
+        if out_path:
+            p = Path(out_path)
+            if p.exists() and "generated_documents" in str(p):
+                p.unlink()
+        db.delete(doc)
+
+    # 2. Find extraction job and clean up source file
+    job = db.query(ExtractionJob).filter(ExtractionJob.userid == user_id).filter(
+        ExtractionJob.extracteddata.op('->>')('confirmed_invoice_id') == invoice_id
+    ).first()
+    
+    if job:
+        file_path = _get_attr(job, "filepath")
+        if file_path:
+            p = Path(file_path)
+            # Only delete if it's in the backend/uploads directory to be safe
+            if p.exists() and "uploads" in str(p):
+                p.unlink()
+        db.delete(job)
+
     db.query(InvoiceLineItem).filter(InvoiceLineItem.invoiceid == invoice_id).delete(synchronize_session=False)
-    db.query(DocumentGenerated).filter(DocumentGenerated.invoiceid == invoice_id).delete(synchronize_session=False)
     db.delete(invoice)
     db.commit()
     return None

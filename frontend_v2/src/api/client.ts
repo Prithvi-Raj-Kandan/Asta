@@ -324,6 +324,58 @@ class ApiClient {
     return response.json();
   }
 
+  async getInvoice(id: string): Promise<InvoiceRow & { has_source_file?: boolean }> {
+    const response = await fetch(`${API_BASE_URL}/invoices/${id}`, {
+      method: "GET",
+      headers: this.getHeaders(true),
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch invoice");
+    }
+
+    return response.json();
+  }
+
+  async deleteInvoice(id: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/invoices/${id}`, {
+      method: "DELETE",
+      headers: this.getHeaders(true),
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to delete invoice");
+    }
+  }
+
+  async getInvoiceSourceBlob(id: string): Promise<Blob> {
+    const response = await fetch(`${API_BASE_URL}/invoices/${id}/source-file`, {
+      method: "GET",
+      headers: this.getHeaders(true),
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch source file");
+    }
+
+    return response.blob();
+  }
+
+  async createInvoice(data: any): Promise<InvoiceRow> {
+    const response = await fetch(`${API_BASE_URL}/invoices/`, {
+      method: "POST",
+      headers: this.getHeaders(true),
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => null);
+      throw new Error(err?.detail || "Failed to create invoice");
+    }
+
+    return response.json();
+  }
+
   async previewGstr1(filingPeriod: string): Promise<{ filing_period: string; row_count: number; rows: Record<string, string>[] }> {
     const response = await fetch(`${API_BASE_URL}/filings/gstr1/preview`, {
       method: "POST",
@@ -439,6 +491,15 @@ class ApiClient {
       body: JSON.stringify({ intent, message, payload }),
     });
     if (!response.ok) throw new Error("Agent run failed");
+    return response.json();
+  }
+
+  async getNews(limit: number = 10): Promise<any> {
+    const response = await fetch(`${API_BASE_URL}/news/?limit=${limit}`, {
+      method: "GET",
+      headers: this.getHeaders(true),
+    });
+    if (!response.ok) throw new Error("Failed to fetch news");
     return response.json();
   }
 }

@@ -13,6 +13,7 @@ import { AIAssistant } from './components/AIAssistant';
 import { ProfilePage } from './components/ProfilePage';
 import { SettingsPage } from './components/SettingsPage';
 import { AnalyticsPage } from './components/AnalyticsPage';
+import { NewsPage } from './components/NewsPage';
 import { Toaster } from 'sonner';
 
 function ProtectedRoute({ isAuthenticated, children }: { isAuthenticated: boolean; children: React.ReactNode }) {
@@ -121,6 +122,13 @@ function AppContent() {
         <ProtectedRoute isAuthenticated={isAuthenticated}>
           <DashboardLayout userName={userName} userEmail={userEmail}>
             <AnalyticsPage userName={userName} organizationName={organizationName} />
+          </DashboardLayout>
+        </ProtectedRoute>
+      } />
+      <Route path="/news" element={
+        <ProtectedRoute isAuthenticated={isAuthenticated}>
+          <DashboardLayout userName={userName} userEmail={userEmail}>
+            <NewsPage />
           </DashboardLayout>
         </ProtectedRoute>
       } />

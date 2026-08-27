@@ -1,18 +1,18 @@
 {
-  "invoice_id": "f2c62572-dac8-4498-9bd7-c11ef20bcd81",
-  "upload_id": "87c7f253-b040-4a73-8f78-3d27cfbcdd03",
+  "invoice_id": "f3a1af4b-491d-4b85-92e4-62f0f2e70080",
+  "upload_id": "ef8b604c-155c-4760-b922-130159942818",
   "user_id": "f0ad2023-c0c3-48a8-887c-3999e784a1ef",
   "document_type": "sale_bill",
   "draft_row": {
-    "gstin_uin": "29ECBPS4617G1ZD",
-    "trade_name": "CASH/CREDIT BILL",
-    "invoice_no": "Con.soeeder",
+    "gstin_uin": "29ABEPF8361N1Z5",
+    "trade_name": "RAKSHA ENTERPRISES",
+    "invoice_no": "1296/2627",
     "date_of_invoice": "",
-    "invoice_value": "40900",
-    "gst_percent": "",
+    "invoice_value": "3965.00",
+    "gst_percent": "2",
     "taxable_value": "",
     "cess": "0",
-    "place_of_supply": "STATE BANK OF INDIA",
+    "place_of_supply": "Karnataka, Code : 29",
     "rcm_applicable": "No",
     "invoice_type": "B2B",
     "e_commerce_gstin": ""
@@ -21,11 +21,6 @@
     {
       "field": "date_of_invoice",
       "message": "Date Of Invoice was not confidently extracted",
-      "severity": "warning"
-    },
-    {
-      "field": "gst_percent",
-      "message": "Gst Percent was not confidently extracted",
       "severity": "warning"
     },
     {

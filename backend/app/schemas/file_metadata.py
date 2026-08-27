@@ -30,7 +30,7 @@ class FileMetadataResponse(BaseModel):
 class DocumentGeneratedResponse(BaseModel):
     """Schema for generated documents (CS205)."""
     id: UUID
-    extraction_job_id: UUID
+    extraction_job_id: Optional[UUID] = None
     document_type: str
     document_path: str
     generated_date: datetime

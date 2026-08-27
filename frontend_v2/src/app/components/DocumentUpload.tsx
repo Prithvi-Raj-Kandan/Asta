@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -7,7 +8,7 @@ import { Badge } from './ui/badge';
 import { Upload, FileText, CheckCircle2, AlertCircle, Loader2, RefreshCw } from 'lucide-react';
 import { Progress } from './ui/progress';
 import { toast } from 'sonner';
-import { apiClient, GSTR1DraftRow, InvoiceRow, UploadDraftResponse, UploadResponse } from '../../api/client';
+import { apiClient, GSTR1DraftRow, UploadDraftResponse, UploadResponse } from '../../api/client';
 
 const FIELD_LABELS: Array<{ key: keyof GSTR1DraftRow; label: string }> = [
   { key: 'gstin_uin', label: 'GSTIN/UIN' },
@@ -34,11 +35,11 @@ const DOCUMENT_TYPES = [
 ];
 
 export function DocumentUpload() {
+  const navigate = useNavigate();
   const [documentType, setDocumentType] = useState('sale_bill');
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [uploads, setUploads] = useState<UploadResponse[]>([]);
-  const [confirmedRows, setConfirmedRows] = useState<InvoiceRow[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState<UploadDraftResponse | null>(null);
@@ -51,17 +52,12 @@ export function DocumentUpload() {
 
   const loadDashboardData = async () => {
     try {
-      const [uploadData, invoiceData] = await Promise.all([
-        apiClient.listUploads(),
-        apiClient.listInvoices(),
-      ]);
+      const uploadData = await apiClient.listUploads();
       setUploads(Array.isArray(uploadData) ? uploadData : []);
-      setConfirmedRows(Array.isArray(invoiceData) ? invoiceData : []);
       setError('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load dashboard data');
       setUploads([]);
-      setConfirmedRows([]);
     } finally {
       setLoading(false);
     }
@@ -115,16 +111,20 @@ export function DocumentUpload() {
     setError('');
 
     try {
-      const confirmed = await apiClient.confirmUpload(draft.id, draft.document_type, draftRow, draft.extraction_issues);
-      setConfirmedRows((current) => [confirmed, ...current.filter((row) => row.id !== confirmed.id)]);
-      setDraft(null);
-      setDraftRow(null);
-      await loadDashboardData();
+      await apiClient.confirmUpload(draft.id, draft.document_type, draftRow, draft.extraction_issues);
       window.dispatchEvent(new Event('app:data-updated'));
-      toast.success('Saved');
+      toast.success('Saved successfully');
+      
+      const type = draft.document_type.toLowerCase();
+      if (type.includes('purchase')) {
+        navigate('/purchases');
+      } else if (type.includes('sale') || type === 'credit_note' || type === 'debit_note' || type === 'export_invoice') {
+        navigate('/sales');
+      } else {
+        navigate('/invoices');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Confirmation failed');
-    } finally {
       setConfirming(false);
     }
   };
@@ -144,11 +144,6 @@ export function DocumentUpload() {
     }
   };
 
-  const totalConfirmedValue = useMemo(
-    () => confirmedRows.reduce((sum, row) => sum + (row.total_value || 0), 0),
-    [confirmedRows]
-  );
-
   const normalizedUploads = uploads.map((upload) => ({
     ...upload,
     document_type: upload.document_type || 'sale_bill',
@@ -156,13 +151,7 @@ export function DocumentUpload() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-sm text-gray-600 mb-1">Confirmed Rows</div>
-            <div className="text-2xl font-bold text-gray-900">{confirmedRows.length}</div>
-          </CardContent>
-        </Card>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card>
           <CardContent className="pt-6">
             <div className="text-sm text-gray-600 mb-1">Uploaded Files</div>
@@ -171,8 +160,8 @@ export function DocumentUpload() {
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <div className="text-sm text-gray-600 mb-1">Total Confirmed Value</div>
-            <div className="text-2xl font-bold text-gray-900">₹{totalConfirmedValue.toLocaleString()}</div>
+            <div className="text-sm text-gray-600 mb-1">Total Confirmations Pending</div>
+            <div className="text-2xl font-bold text-gray-900">{uploads.filter(u => u.status === 'review_required').length}</div>
           </CardContent>
         </Card>
       </div>
@@ -329,61 +318,6 @@ export function DocumentUpload() {
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <CardTitle>Database Rows</CardTitle>
-              <CardDescription>All confirmed rows currently stored in the database</CardDescription>
-            </div>
-            <Button variant="outline" size="sm" onClick={() => { void loadDashboardData(); }} disabled={loading}>
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Refresh
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-            </div>
-          ) : confirmedRows.length > 0 ? (
-            <div className="overflow-x-auto border rounded-lg">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Invoice No</TableHead>
-                    <TableHead>Trade Name</TableHead>
-                    <TableHead>GSTIN/UIN</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead className="text-right">Taxable Value</TableHead>
-                    <TableHead className="text-right">Invoice Value</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {confirmedRows.map((row) => (
-                    <TableRow key={row.id}>
-                      <TableCell className="font-medium">{row.invoice_number}</TableCell>
-                      <TableCell>{row.party_name || '-'}</TableCell>
-                      <TableCell className="text-xs text-gray-600">{row.party_gstin || '-'}</TableCell>
-                      <TableCell>{row.invoice_date || '-'}</TableCell>
-                      <TableCell className="text-right">₹{(row.taxable_value || 0).toLocaleString()}</TableCell>
-                      <TableCell className="text-right">₹{(row.total_value || 0).toLocaleString()}</TableCell>
-                      <TableCell>{getStatusBadge(row.status)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          ) : (
-            <div className="text-center py-8 text-gray-500">
-              <p>No confirmed database rows yet. Upload an image and confirm the extracted row to save it here.</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {[
           { type: 'Sale Invoice', description: 'Primary GSTR-1 sales flow', icon: FileText, color: 'blue' },
@@ -407,8 +341,16 @@ export function DocumentUpload() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Recent Uploads</CardTitle>
-          <CardDescription>Your uploaded files and workflow status</CardDescription>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <CardTitle>Recent Uploads</CardTitle>
+              <CardDescription>Your uploaded files and workflow status</CardDescription>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => { void loadDashboardData(); }} disabled={loading}>
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Refresh
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {uploads.length > 0 ? (

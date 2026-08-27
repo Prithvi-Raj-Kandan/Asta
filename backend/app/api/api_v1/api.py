@@ -10,6 +10,7 @@ from .endpoints import (
     compliance,
     chat,
     analytics,
+    news,
 )
 
 api_router = APIRouter()
@@ -24,3 +25,4 @@ api_router.include_router(filings.router, prefix="/filings", tags=["filings"])
 api_router.include_router(compliance.router, prefix="/compliance", tags=["compliance"])
 api_router.include_router(chat.router, prefix="/chat", tags=["chat"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
+api_router.include_router(news.router, prefix="/news", tags=["news"])

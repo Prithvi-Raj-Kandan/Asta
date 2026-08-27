@@ -41,3 +41,11 @@ class DocumentGenerated(DeferredReflection, Base):
 
 class ChatHistory(DeferredReflection, Base):
     __tablename__ = "chat_history"
+
+
+class ObligationCatalog(DeferredReflection, Base):
+    __tablename__ = "obligation_catalog"
+
+
+class GovtNews(DeferredReflection, Base):
+    __tablename__ = "govt_news"
