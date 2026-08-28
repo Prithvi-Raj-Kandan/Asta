@@ -488,6 +488,8 @@ class ApiClient {
     download_url?: string | null;
     download_filename?: string | null;
     download_label?: string | null;
+    action_type?: string | null;
+    action_payload?: any | null;
   }> {
     const response = await fetch(`${API_BASE_URL}/chat/`, {
       method: "POST",

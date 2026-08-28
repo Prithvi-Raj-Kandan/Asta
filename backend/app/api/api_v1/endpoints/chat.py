@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from ....agents.document_generator import DocumentGeneratorAgent
 from ....agents.orchestrator import orchestrator
+from ....agents.chat_tools import ChatTools
 from ....api.deps import get_current_user_id
 from ....db.session import get_db
 from ....models.reflected import ChatHistory, Invoice
@@ -37,6 +38,8 @@ class ChatResponse(BaseModel):
     download_url: str | None = None
     download_filename: str | None = None
     download_label: str | None = None
+    action_type: str | None = None
+    action_payload: dict | None = None
 
 
 @router.post("/", response_model=ChatResponse)
@@ -52,11 +55,19 @@ def chat(
     download_url = None
     download_filename = None
     download_label = None
+    action_type = None
+    action_payload = None
     generated_meta: dict | None = None
 
-    if intent == "document_generate" or _wants_gstr1(body.message):
+    if _wants_gstr1(body.message):
+        # Deterministically handle GSTR-1 intent
         intent = "document_generate"
-        filing_period = datetime.utcnow().strftime("%Y-%m")
+        
+        # Try to extract period from message (e.g. 2026-08), default to current month
+        import re
+        period_match = re.search(r"(\d{4}-\d{2})", body.message)
+        filing_period = period_match.group(1) if period_match else datetime.utcnow().strftime("%Y-%m")
+        
         result = doc_agent.run(
             {
                 "filing_period": filing_period,
@@ -66,17 +77,25 @@ def chat(
             {"db": db, "user_id": user_id},
         )
         db.commit()
-        if result.success and result.data.get("filename"):
-            download_filename = result.data["filename"]
-            download_url = f"/api/v1/filings/gstr1/files/{download_filename}"
-            download_label = f"Download GSTR-1 CSV ({filing_period})"
-            generated_meta = {
-                "filing_period": filing_period,
-                "row_count": result.data.get("row_count", 0),
-                "filename": download_filename,
-            }
+        
+        if result.success and result.data.get("rows"):
+            action_type = "review_filing"
+            action_payload = {"period": filing_period}
+            
+            # Since we intercept, we provide a deterministic reply
+            reply = (
+                f"I have successfully prepared your GSTR-1 payload for **{filing_period}**.\n\n"
+                "Please click the **Review & File** button below to inspect the details and submit it to the sandbox environment."
+            )
+            agents_used = ["document_generator"]
+            
+            # Skip the LLM call for deterministic filing
+            llm_service_bypassed = True
         else:
             generated_meta = {"error": result.error or result.message or "Generation failed"}
+            llm_service_bypassed = False
+    else:
+        llm_service_bypassed = False
 
     orch = orchestrator.run(
         db=db,
@@ -89,57 +108,66 @@ def chat(
     citations = retrieve_chunks(db, body.message, k=4) if embedding_service.available else []
     context_bits = [c["content"] for c in citations]
 
-    invoices = db.query(Invoice).filter(Invoice.userid == user_id).limit(20).all()
-    inv_summary = [
-        {
-            "number": i.invoicenumber,
-            "date": str(i.invoicedate) if i.invoicedate else None,
-            "party": i.partyname,
-            "total": float(i.totalvalue) if i.totalvalue is not None else None,
-            "type": i.documenttype,
-        }
-        for i in invoices
-    ]
-
     agent_context = orch.get("results") or []
-
-    if generated_meta is not None and generated_meta.get("filename"):
-        reply = (
-            f"I generated your GSTR-1 CSV for **{generated_meta['filing_period']}** "
-            f"with **{generated_meta['row_count']}** invoice row(s).\n\n"
-            "Use the download button below to get the file, review it, then upload it on the GST portal. "
-            "Asta prepares the portal-compatible CSV but does not file the return for you.\n\n"
-            "Typical GSTR-1 due date is the **11th of the following month** — confirm against the current GST calendar."
-        )
+    
+    if llm_service_bypassed:
+        # We already generated the reply deterministically
+        pass
     elif generated_meta is not None:
         reply = (
             "I tried to generate the GSTR-1 file but it could not be created. "
             f"{generated_meta.get('error') or 'Please try again from Compliance → AI Generate.'}"
         )
+        agents_used = ["document_generator"]
     elif llm_service.available:
         try:
-            reply = llm_service.complete(
+            tools_obj = ChatTools(db, user_id)
+            tool_list = tools_obj.get_tools_list()
+            
+            system_msg = (
                 "You are Asta, an India GST compliance co-pilot. Answer in clear prose. "
-                "Never dump raw Python dicts or JSON. Summarize numbers as rupees and dates. "
-                "If unsure, say so. Do not invent portal filing confirmations. "
-                "Do not claim a file or PDF is downloadable unless a download button is provided.",
-                (
-                    f"User question: {body.message}\n\n"
-                    f"Knowledge:\n{chr(10).join(context_bits)}\n\n"
-                    f"Invoices sample: {inv_summary}\n\n"
-                    f"Agent results: {agent_context}"
-                ),
-                max_tokens=1000,
+                "You have access to tools to prepare GSTR-1 for filing in the sandbox, fetch news, and get financial summaries. "
+                "Use them if the user asks. If unsure, say so. "
+                "CRITICAL: Asta can file directly to the GST portal using GSP integrations (currently in sandbox testing). "
+                "NEVER tell the user that they must export or manually upload files themselves."
             )
+            
+            user_msg = (
+                f"User question: {body.message}\n\n"
+                f"Knowledge:\n{chr(10).join(context_bits)}\n\n"
+                f"Agent results: {agent_context}"
+            )
+            
+            reply, llm_calls = llm_service.chat_with_tools(
+                system=system_msg,
+                user=user_msg,
+                tools=tool_list,
+                max_tokens=1000
+            )
+            
+            logger.warning(f"===================================")
+            logger.warning(f"LLM Calls returned: {llm_calls}")
+            logger.warning(f"===================================")
+            
+            agents_used = []
+            for call in llm_calls:
+                name = call.get("name")
+                if name not in agents_used:
+                    agents_used.append(name)
+                
+                if name == "prepare_gstr1_filing":
+                    action_type = "review_filing"
+                    action_payload = {"period": call.get("args", {}).get("period")}
+            
+            reply += f"\n\n[DEBUG llm_calls: {llm_calls}]"
+            
         except Exception as exc:
             logger.warning("Chat LLM failed: %s", exc)
             reply = _fallback_reply(body.message, agent_context, citations)
+            agents_used = []
     else:
         reply = _fallback_reply(body.message, agent_context, citations)
-
-    agents_used = list(orch.get("agents_used") or [])
-    if generated_meta is not None and "document_generator" not in agents_used:
-        agents_used.append("document_generator")
+        agents_used = []
 
     _persist_message(db, user_id, session_id, "user", body.message, intent, None, None)
     _persist_message(
@@ -163,6 +191,8 @@ def chat(
         download_url=download_url,
         download_filename=download_filename,
         download_label=download_label,
+        action_type=action_type,
+        action_payload=action_payload,
     )
 
 
