@@ -13,10 +13,24 @@ def calculate_health_score(obligations: list[dict[str, Any]], invoice_count: int
     open_items = [i for i in obligations if i.get("status") != "filed"]
     overdue = sum(1 for i in open_items if i.get("status") == "overdue")
     due_soon = sum(1 for i in open_items if i.get("status") == "due_soon")
+    pending = sum(1 for i in open_items if i.get("status") not in ["overdue", "due_soon"])
     
     score = 100
-    score -= overdue * 25
-    score -= due_soon * 10
+    
+    # Penalties for compliance issues
+    score -= (overdue * 25)
+    score -= (due_soon * 10)
+    score -= (pending * 2)  # Minor penalty for backlog
+    
+    # Penalty for abnormal invoice volume (missing data)
+    if invoice_count == 0:
+        score -= 15
+    elif invoice_count < 5:
+        score -= 5
+        
+    # Bonus for perfect compliance
+    if overdue == 0 and due_soon == 0 and pending == 0 and invoice_count > 0:
+        score += 5
     
     score = max(0, min(100, score))
     

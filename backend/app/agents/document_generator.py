@@ -10,6 +10,8 @@ from uuid import uuid4
 
 from openpyxl import Workbook
 from sqlalchemy.orm import Session
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
 
 from ..models.reflected import DocumentGenerated, Invoice
 from .base import AgentResult, BaseAgent
@@ -41,16 +43,21 @@ class DocumentGeneratorAgent(BaseAgent):
         user_id = (context or {}).get("user_id") or payload.get("user_id")
         filing_period = payload.get("filing_period") or datetime.utcnow().strftime("%Y-%m")
         output_format = (payload.get("format") or "csv").lower()
+        document_type = payload.get("document_type") or "gstr1_export"
         rows = payload.get("rows")
 
         if rows is None and db is not None and user_id:
             rows = self._rows_from_invoices(db, user_id, filing_period, payload.get("document_types"))
         rows = rows or []
 
-        if output_format == "xlsx":
-            content, filename, fmt = self._build_xlsx(rows, filing_period)
+        if document_type in ("lut_export", "iec_export", "shipping_bill_export"):
+            content, filename, fmt = self._build_pdf(document_type, filing_period, user_id, rows)
+            output_format = fmt
         else:
-            content, filename, fmt = self._build_csv(rows, filing_period)
+            if output_format == "xlsx":
+                content, filename, fmt = self._build_xlsx(rows, filing_period)
+            else:
+                content, filename, fmt = self._build_csv(rows, filing_period)
 
         out_path = GENERATED_DIR / filename
         out_path.write_bytes(content)
@@ -60,7 +67,7 @@ class DocumentGeneratorAgent(BaseAgent):
             doc = DocumentGenerated()
             doc.id = uuid4()
             doc.userid = user_id
-            doc.documenttype = "gstr1_export"
+            doc.documenttype = document_type
             doc.templateversion = "1.0"
             doc.inputdata = {"filing_period": filing_period, "row_count": len(rows)}
             doc.filingperiod = filing_period
@@ -213,3 +220,26 @@ class DocumentGeneratorAgent(BaseAgent):
         wb.save(buffer)
         filename = f"gstr1_{filing_period}_{uuid4().hex[:8]}.xlsx"
         return buffer.getvalue(), filename, "xlsx"
+
+    def _build_pdf(self, document_type: str, filing_period: str, user_id: str, rows: list[dict[str, str]]) -> tuple[bytes, str, str]:
+        buffer = io.BytesIO()
+        c = canvas.Canvas(buffer, pagesize=letter)
+        c.drawString(100, 750, f"{document_type.replace('_export', '').upper()} DRAFT")
+        c.drawString(100, 730, f"Period: {filing_period}")
+        c.drawString(100, 710, f"User ID: {user_id}")
+        c.drawString(100, 690, f"Total records included: {len(rows)}")
+        c.drawString(100, 670, "NOTE: This is a placeholder PDF draft. Review carefully before submission.")
+        
+        y = 640
+        for i, row in enumerate(rows[:10]):  # just print first few
+            c.drawString(100, y, f"Row {i+1}: {row.get('Invoice No', 'N/A')} - {row.get('Invoice Value', 'N/A')}")
+            y -= 20
+            if y < 50:
+                break
+        
+        c.showPage()
+        c.save()
+        
+        prefix = document_type.replace('_export', '')
+        filename = f"{prefix}_{filing_period}_{uuid4().hex[:8]}.pdf"
+        return buffer.getvalue(), filename, "pdf"

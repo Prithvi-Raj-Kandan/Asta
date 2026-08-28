@@ -111,7 +111,9 @@ def get_all_generated_documents(
             extraction_job_id=_document_source_id(doc),
             document_type=_get_attr(doc, "documenttype"),
             document_path=_get_attr(doc, "outputfilepath"),
-            generated_date=_get_attr(doc, "generatedat"),
+            generated_date=_get_attr(doc, "generatedat") or _get_attr(doc, "created_at"),
+            submission_status=_get_attr(doc, "submission_status"),
+            submitted_at=_get_attr(doc, "submitted_at")
         )
         for doc in documents
     ]
@@ -198,7 +200,9 @@ def get_generated_documents(
             extraction_job_id=_document_source_id(doc),
             document_type=_get_attr(doc, "documenttype"),
             document_path=_get_attr(doc, "outputfilepath"),
-            generated_date=_get_attr(doc, "generatedat"),
+            generated_date=_get_attr(doc, "generatedat") or _get_attr(doc, "created_at"),
+            submission_status=_get_attr(doc, "submission_status"),
+            submitted_at=_get_attr(doc, "submitted_at")
         )
         for doc in documents
     ]

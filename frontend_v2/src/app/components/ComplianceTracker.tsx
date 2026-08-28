@@ -49,6 +49,8 @@ type GeneratedDocument = {
   document_path: string;
   generated_date: string;
   extraction_job_id?: string;
+  submission_status?: string | null;
+  submitted_at?: string | null;
 };
 
 export function ComplianceTracker() {
@@ -58,10 +60,14 @@ export function ComplianceTracker() {
   const [health, setHealth] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [exportingId, setExportingId] = useState<string | null>(null);
+  const [filingId, setFilingId] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<Obligation | null>(null);
   const [selectedObligation, setSelectedObligation] = useState<Obligation | null>(null);
   const [activeTab, setActiveTab] = useState('all');
   const [vaultDocs, setVaultDocs] = useState<GeneratedDocument[]>([]);
+  const [reviewingFiling, setReviewingFiling] = useState<Obligation | null>(null);
+  const [previewJson, setPreviewJson] = useState<string>('');
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const load = async () => {
     try {
@@ -123,6 +129,66 @@ export function ComplianceTracker() {
     }
   };
 
+  const handleExportDoc = async (o: Obligation) => {
+    if (!o.period_label) return;
+    try {
+      setExportingId(o.id);
+      let docType = '';
+      if (o.obligation_type === 'LUT') docType = 'lut_export';
+      else if (o.obligation_type === 'IEC') docType = 'iec_export';
+      else if (o.obligation_type === 'SHIPPING_BILL') docType = 'shipping_bill_export';
+      else return;
+
+      const blob = await apiClient.exportDoc(o.period_label, docType);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${docType}_${o.period_label}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`${o.obligation_type} draft downloaded`);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Export failed');
+    } finally {
+      setExportingId(null);
+    }
+  };
+
+  const handleReviewFiling = async (o: Obligation) => {
+    if (!o.period_label) return;
+    setReviewingFiling(o);
+    setPreviewLoading(true);
+    setPreviewJson('');
+    try {
+      const res = await apiClient.previewGstr1(o.period_label);
+      setPreviewJson(JSON.stringify(res.rows, null, 2));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to fetch preview');
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const handleSandboxFile = async (o: Obligation) => {
+    if (!o.period_label) return;
+    try {
+      setFilingId(o.id);
+      let rowsToSubmit = undefined;
+      if (previewJson) {
+         rowsToSubmit = JSON.parse(previewJson);
+      }
+      const res = await apiClient.sandboxFileGstr1(o.period_label, rowsToSubmit);
+      toast.success(res.message || 'Filed successfully in sandbox');
+      setReviewingFiling(null);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Sandbox filing failed');
+    } finally {
+      setFilingId(null);
+    }
+  };
+
   const confirmMarkFiled = async () => {
     if (!pendingFile) return;
     const o = pendingFile;
@@ -175,18 +241,40 @@ export function ComplianceTracker() {
             </div>
             <div className="flex gap-2">
               {compliance.obligation_type === 'GSTR-1' && (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={exportingId === compliance.id}
+                    onClick={(e) => { e.stopPropagation(); void handleExport(compliance); }}
+                  >
+                    <FileDown className="w-4 h-4 mr-1" />
+                    AI Generate
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="default"
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                    onClick={(e) => { e.stopPropagation(); void handleReviewFiling(compliance); }}
+                  >
+                    <ExternalLink className="w-4 h-4 mr-1" />
+                    Review & File
+                  </Button>
+                </>
+              )}
+              {['LUT', 'IEC', 'SHIPPING_BILL'].includes(compliance.obligation_type) && (
                 <Button
                   size="sm"
                   variant="outline"
                   disabled={exportingId === compliance.id}
-                  onClick={(e) => { e.stopPropagation(); void handleExport(compliance); }}
+                  onClick={(e) => { e.stopPropagation(); void handleExportDoc(compliance); }}
                 >
                   <FileDown className="w-4 h-4 mr-1" />
                   AI Generate
                 </Button>
               )}
-              <Button size="sm" onClick={(e) => { e.stopPropagation(); setPendingFile(compliance); }}>
-                <Sparkles className="w-4 h-4 mr-1" />
+              <Button size="sm" variant="secondary" onClick={(e) => { e.stopPropagation(); setPendingFile(compliance); }}>
+                <CheckCircle2 className="w-4 h-4 mr-1" />
                 Mark Filed
               </Button>
             </div>
@@ -268,7 +356,11 @@ export function ComplianceTracker() {
                     </div>
                     <div>
                       <p className="font-medium text-sm text-gray-900">{doc.document_type || 'Generated File'}</p>
-                      <p className="text-xs text-gray-500">{new Date(doc.generated_date).toLocaleString()}</p>
+                      <p className="text-xs text-gray-500">
+                        Generated: {new Date(doc.generated_date).toLocaleString()}
+                        {doc.submission_status && ` | Status: ${doc.submission_status}`}
+                        {doc.submitted_at && ` | Submitted: ${new Date(doc.submitted_at).toLocaleString()}`}
+                      </p>
                     </div>
                   </div>
                   <Button size="sm" variant="outline" onClick={() => {
@@ -390,6 +482,63 @@ export function ComplianceTracker() {
                   </Button>
                   <Button variant="outline" className="w-full" onClick={() => setSelectedObligation(null)}>
                     Close
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
+
+      {/* Review Filing Drawer */}
+      <Sheet open={!!reviewingFiling} onOpenChange={(open) => {
+          if (!open) {
+             setReviewingFiling(null);
+             setPreviewJson('');
+          }
+      }}>
+        <SheetContent className="sm:max-w-xl overflow-y-auto w-[600px]">
+          {reviewingFiling && (
+            <>
+              <SheetHeader className="mb-6">
+                <SheetTitle className="text-2xl">
+                  Review & File {reviewingFiling.obligation_type}
+                </SheetTitle>
+                <SheetDescription>
+                  Period: {reviewingFiling.period_label}
+                </SheetDescription>
+              </SheetHeader>
+              
+              <div className="space-y-6">
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-900 mb-2">Generated Payload</h4>
+                  <p className="text-sm text-gray-600 mb-4">Please review the JSON data generated by AI before submitting to Sandbox.co.in.</p>
+                  
+                  {previewLoading ? (
+                    <div className="p-8 text-center text-gray-500 bg-slate-50 rounded-lg">Loading preview...</div>
+                  ) : previewJson ? (
+                    <textarea 
+                      className="w-full h-[400px] font-mono text-xs bg-slate-900 text-slate-50 p-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      value={previewJson}
+                      onChange={(e) => setPreviewJson(e.target.value)}
+                    />
+                  ) : (
+                    <div className="p-8 text-center text-red-500 bg-red-50 rounded-lg">Failed to load preview data.</div>
+                  )}
+                </div>
+                
+                <div className="pt-6 border-t flex flex-col gap-2">
+                  <Button 
+                    className="w-full bg-green-600 hover:bg-green-700 text-white" 
+                    disabled={previewLoading || !previewJson || filingId === reviewingFiling.id}
+                    onClick={() => {
+                        void handleSandboxFile(reviewingFiling);
+                    }}
+                  >
+                    {filingId === reviewingFiling.id ? 'Submitting to Sandbox...' : 'Approve & Submit'}
+                  </Button>
+                  <Button variant="outline" className="w-full" onClick={() => setReviewingFiling(null)}>
+                    Cancel
                   </Button>
                 </div>
               </div>

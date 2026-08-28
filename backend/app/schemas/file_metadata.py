@@ -34,6 +34,8 @@ class DocumentGeneratedResponse(BaseModel):
     document_type: str
     document_path: str
     generated_date: datetime
+    submission_status: Optional[str] = None
+    submitted_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

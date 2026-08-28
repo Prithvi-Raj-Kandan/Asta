@@ -415,6 +415,32 @@ class ApiClient {
     return response.blob();
   }
 
+  async exportDoc(filingPeriod: string, documentType: string): Promise<Blob> {
+    const response = await fetch(`${API_BASE_URL}/filings/export-docs/export`, {
+      method: "POST",
+      headers: this.getHeaders(true),
+      body: JSON.stringify({ filing_period: filingPeriod, document_type: documentType, triggered_by: "user" }),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      throw new Error(errorData?.detail || "Export document generation failed");
+    }
+    return response.blob();
+  }
+
+  async sandboxFileGstr1(filingPeriod: string, rows?: any[]): Promise<{ status: string; message: string; acknowledgement_number: string }> {
+    const response = await fetch(`${API_BASE_URL}/filings/gstr1/sandbox-file`, {
+      method: "POST",
+      headers: this.getHeaders(true),
+      body: JSON.stringify({ filing_period: filingPeriod, rows }),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      throw new Error(errorData?.detail || "Sandbox filing failed");
+    }
+    return response.json();
+  }
+
   async listObligations() {
     const response = await fetch(`${API_BASE_URL}/compliance/obligations`, {
       method: "GET",

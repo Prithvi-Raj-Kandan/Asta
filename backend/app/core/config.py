@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     GEMINI_EMBEDDING_MODEL: str = "gemini-embedding-001"
     EMBEDDING_DIM: int = 1536
 
+    SANDBOX_BASE_URL: str = "https://test-api.sandbox.co.in"
+    SANDBOX_API_KEY: str = ""
+    SANDBOX_API_SECRET: str = ""
+
     model_config = SettingsConfigDict(
         env_file=Path(__file__).resolve().parents[2] / ".env",
         extra="ignore",

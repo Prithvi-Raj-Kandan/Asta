@@ -20,3 +20,4 @@ pgvector
 httpx
 feedparser
 apscheduler
+reportlab

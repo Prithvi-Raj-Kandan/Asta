@@ -49,3 +49,7 @@ class ObligationCatalog(DeferredReflection, Base):
 
 class GovtNews(DeferredReflection, Base):
     __tablename__ = "govt_news"
+
+
+class FilingAttempt(DeferredReflection, Base):
+    __tablename__ = "filing_attempts"
