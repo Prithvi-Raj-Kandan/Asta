@@ -1,0 +1,52 @@
+{
+  "invoice_id": "38f7f786-d91b-46c9-9d58-803a72d938ad",
+  "upload_id": "6848a23e-747d-4932-bca2-02d142ca3290",
+  "user_id": "f0ad2023-c0c3-48a8-887c-3999e784a1ef",
+  "document_type": "credit_note",
+  "draft_row": {
+    "gstin_uin": "29ECBPS4617G1ZD",
+    "trade_name": "CASH/ CREDIT BILL",
+    "invoice_no": "123456",
+    "date_of_invoice": "28/08/2026",
+    "invoice_value": "30000",
+    "gst_percent": "18",
+    "taxable_value": "10000",
+    "cess": "0",
+    "place_of_supply": "SRI RAGHAVENDRA SPARES & HARDWARE",
+    "rcm_applicable": "No",
+    "invoice_type": "Credit Note",
+    "e_commerce_gstin": ""
+  },
+  "extraction_issues": [
+    {
+      "field": "invoice_no",
+      "message": "Invoice No was not confidently extracted",
+      "severity": "warning"
+    },
+    {
+      "field": "date_of_invoice",
+      "message": "Date Of Invoice was not confidently extracted",
+      "severity": "warning"
+    },
+    {
+      "field": "invoice_value",
+      "message": "Invoice Value was not confidently extracted",
+      "severity": "warning"
+    },
+    {
+      "field": "gst_percent",
+      "message": "Gst Percent was not confidently extracted",
+      "severity": "warning"
+    },
+    {
+      "field": "taxable_value",
+      "message": "Taxable Value was not confidently extracted",
+      "severity": "warning"
+    },
+    {
+      "field": "e_commerce_gstin",
+      "message": "E Commerce Gstin was not confidently extracted",
+      "severity": "warning"
+    }
+  ]
+}

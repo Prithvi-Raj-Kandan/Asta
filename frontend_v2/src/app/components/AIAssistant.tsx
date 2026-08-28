@@ -145,6 +145,15 @@ export function AIAssistant() {
       }
       const res = await apiClient.sandboxFileGstr1(reviewingPeriod, rowsToSubmit);
       toast.success(res.message || 'Filed successfully in sandbox');
+      
+      const successMessage: Message = {
+        id: Date.now() + 10,
+        role: 'assistant',
+        content: `✅ I have successfully filed your GSTR-1 for **${reviewingPeriod}** in the Sandbox environment.\n\nFiling Acknowledgement Number: **${res.acknowledgement_number || 'N/A'}**\n\nYour dashboard and compliance status have been updated accordingly.`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, successMessage]);
+      
       setReviewingPeriod(null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Sandbox filing failed');
