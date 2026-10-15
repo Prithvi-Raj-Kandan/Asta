@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { apiClient } from '../api/client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { LandingPage } from './components/LandingPage';
 import { AuthPage } from './components/AuthPage';
@@ -22,15 +23,33 @@ function ProtectedRoute({ isAuthenticated, children }: { isAuthenticated: boolea
   return isAuthenticated || devBypass ? children : <Navigate to="/login" replace />;
 }
 
+const USER_STORAGE_KEY = 'asta_user';
+
+function readStoredUser() {
+  try {
+    const raw = localStorage.getItem(USER_STORAGE_KEY);
+    if (!raw) return { name: '', email: '', organization: '' };
+    const parsed = JSON.parse(raw) as { name?: string; email?: string; organization?: string };
+    return {
+      name: parsed.name || '',
+      email: parsed.email || '',
+      organization: parsed.organization || '',
+    };
+  } catch {
+    return { name: '', email: '', organization: '' };
+  }
+}
+
 function AppContent() {
+  const storedUser = readStoredUser();
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     return !!localStorage.getItem('auth_token');
   });
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('signup');
   const [showAuth, setShowAuth] = useState(false);
-  const [userName, setUserName] = useState('');
-  const [userEmail, setUserEmail] = useState('');
-  const [organizationName, setOrganizationName] = useState('');
+  const [userName, setUserName] = useState(storedUser.name);
+  const [userEmail, setUserEmail] = useState(storedUser.email);
+  const [organizationName, setOrganizationName] = useState(storedUser.organization);
 
   const handleGetStarted = () => {
     setAuthMode('signup');
@@ -47,14 +66,15 @@ function AppContent() {
   };
 
   const handleAuth = (email: string, name?: string, org?: string) => {
+    const nextName = name?.trim() || email.split('@')[0] || 'User';
+    const nextOrg = org?.trim() || '';
     setUserEmail(email);
-    if (name) setUserName(name);
-    if (org) setOrganizationName(org);
-
-    if (authMode === 'login') {
-      setUserName('John Doe');
-      setOrganizationName('Acme Corporation');
-    }
+    setUserName(nextName);
+    if (org) setOrganizationName(nextOrg);
+    localStorage.setItem(
+      USER_STORAGE_KEY,
+      JSON.stringify({ name: nextName, email, organization: nextOrg || organizationName })
+    );
 
     setIsAuthenticated(true);
     setShowAuth(false);
@@ -63,6 +83,27 @@ function AppContent() {
   const handleBackToLanding = () => {
     setShowAuth(false);
   };
+
+  useEffect(() => {
+    if (!isAuthenticated || (userName && userEmail)) return;
+    void apiClient
+      .getCurrentUser()
+      .then((user: { email?: string; business_name?: string }) => {
+        const nextEmail = user.email || '';
+        const nextName = user.business_name || nextEmail.split('@')[0] || 'User';
+        const nextOrg = user.business_name || '';
+        setUserEmail(nextEmail);
+        setUserName(nextName);
+        setOrganizationName(nextOrg);
+        localStorage.setItem(
+          USER_STORAGE_KEY,
+          JSON.stringify({ name: nextName, email: nextEmail, organization: nextOrg })
+        );
+      })
+      .catch(() => {
+        /* keep empty labels if the session cannot be restored */
+      });
+  }, [isAuthenticated, userName, userEmail]);
 
   if (showAuth) {
     return <AuthPage mode={authMode} onAuth={handleAuth} onBack={handleBackToLanding} onSwitchMode={handleSwitchMode} />;

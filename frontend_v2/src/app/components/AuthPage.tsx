@@ -50,12 +50,14 @@ export function AuthPage({ mode, onAuth, onBack, onSwitchMode }: AuthPageProps) 
           business_type: businessType,
           phone: phone || undefined,
         });
-        onAuth(email, name, organization);
+        const user = response.user;
+        onAuth(user?.email || email, name || user?.business_name, user?.business_name || organization);
         // Redirect to dashboard after successful signup
         setTimeout(() => navigate('/dashboard'), 300);
       } else {
         const response = await apiClient.login({ email, password });
-        onAuth(email);
+        const user = response.user;
+        onAuth(user?.email || email, user?.business_name, user?.business_name);
         // Redirect to dashboard after successful login
         setTimeout(() => navigate('/dashboard'), 300);
       }

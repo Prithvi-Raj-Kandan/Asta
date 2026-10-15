@@ -6,6 +6,7 @@ import { Avatar, AvatarFallback } from './ui/avatar';
 import { Send, Bot, User, Sparkles, FileText, Calculator, Calendar, Download } from 'lucide-react';
 import { ScrollArea } from './ui/scroll-area';
 import { apiClient } from '../../api/client';
+import { ChatMarkdown } from './ChatMarkdown';
 import { toast } from 'sonner';
 
 interface Message {
@@ -188,11 +189,11 @@ export function AIAssistant() {
                       </AvatarFallback>
                     </Avatar>
                     <div
-                      className={`max-w-[75%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${
-                        message.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'
+                      className={`max-w-[75%] rounded-lg px-3 py-2 text-sm ${
+                        message.role === 'user' ? 'bg-blue-600 text-white whitespace-pre-wrap' : 'bg-gray-100 text-gray-900'
                       }`}
                     >
-                      {message.content}
+                      {message.role === 'assistant' ? <ChatMarkdown text={message.content} /> : message.content}
                       {message.downloadUrl && (
                         <div className="mt-3">
                           <Button

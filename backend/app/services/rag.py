@@ -22,10 +22,6 @@ def ensure_knowledge_indexed(db: Session, force: bool = False) -> int:
     if existing > 0 and not force:
         return int(existing)
 
-    if force:
-        db.execute(text("DELETE FROM knowledge_chunks"))
-        db.commit()
-
     chunks: list[tuple[str, str]] = []
     if KNOWLEDGE_DIR.exists():
         for path in sorted(KNOWLEDGE_DIR.glob("*.md")):
@@ -36,9 +32,16 @@ def ensure_knowledge_indexed(db: Session, force: bool = False) -> int:
     if not chunks:
         return 0
 
-    vectors = embedding_service.embed_many(
-        [c[1] for c in chunks], task_type="RETRIEVAL_DOCUMENT"
-    )
+    try:
+        vectors = embedding_service.embed_many(
+            [c[1] for c in chunks], task_type="RETRIEVAL_DOCUMENT"
+        )
+    except Exception as exc:
+        logger.warning("Knowledge indexing skipped, embedding failed: %s", exc)
+        return int(existing)
+
+    if force:
+        db.execute(text("DELETE FROM knowledge_chunks"))
     count = 0
     for (source, content), emb in zip(chunks, vectors):
         emb_literal = "[" + ",".join(str(float(x)) for x in emb) + "]"
@@ -62,23 +65,30 @@ def ensure_knowledge_indexed(db: Session, force: bool = False) -> int:
     return count
 
 
+def _keyword_chunks(db: Session, query: str, k: int) -> list[dict]:
+    rows = db.execute(
+        text(
+            """
+            SELECT source, content, 0.0 AS distance
+            FROM knowledge_chunks
+            WHERE content ILIKE :q
+            LIMIT :k
+            """
+        ),
+        {"q": f"%{query[:80]}%", "k": k},
+    ).mappings().all()
+    return [dict(r) for r in rows]
+
+
 def retrieve_chunks(db: Session, query: str, k: int = 4) -> list[dict]:
     if not embedding_service.available:
-        # keyword fallback
-        rows = db.execute(
-            text(
-                """
-                SELECT source, content, 0.0 AS distance
-                FROM knowledge_chunks
-                WHERE content ILIKE :q
-                LIMIT :k
-                """
-            ),
-            {"q": f"%{query[:80]}%", "k": k},
-        ).mappings().all()
-        return [dict(r) for r in rows]
+        return _keyword_chunks(db, query, k)
 
-    emb = embedding_service.embed(query, task_type="RETRIEVAL_QUERY")
+    try:
+        emb = embedding_service.embed(query, task_type="RETRIEVAL_QUERY")
+    except Exception as exc:
+        logger.warning("Embedding failed, using keyword search instead: %s", exc)
+        return _keyword_chunks(db, query, k)
     emb_literal = "[" + ",".join(str(float(x)) for x in emb) + "]"
     rows = db.execute(
         text(

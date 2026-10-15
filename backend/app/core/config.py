@@ -9,7 +9,9 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
 
     GEMINI_API_KEY: str | None = None
-    GEMINI_MODEL: str = "gemini-3.6-flash"
+    GEMINI_MODEL: str = "gemini-3.8-flash"
+    GEMINI_FALLBACK_MODELS: str = "gemini-3.6-flash,gemini-3.5-flash-lite"
+    GEMINI_REQUEST_TIMEOUT_MS: int = 30000
     GEMINI_EMBEDDING_MODEL: str = "gemini-embedding-001"
     EMBEDDING_DIM: int = 1536
 

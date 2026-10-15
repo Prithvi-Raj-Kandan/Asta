@@ -65,28 +65,47 @@ class ChatTools:
 
     def get_financial_summary(self) -> str:
         """
-        Retrieves the total sales, purchases, and upcoming compliance deadlines for the user.
-        
+        Retrieves sales, purchases, per-invoice amounts, the highest sale, and upcoming deadlines.
+
         Returns:
-            A string summarizing the user's current financial and compliance data.
+            A formatted string the model can use to answer totals or highest-sale questions.
         """
         invoices = self.db.query(Invoice).filter(Invoice.userid == self.user_id).all()
-        sales = [i for i in invoices if i.documenttype in {"sales_invoice", "export_invoice"}]
-        purchases = [i for i in invoices if i.documenttype == "purchase_invoice"]
-        
+        sales_types = {"sales_invoice", "export_invoice", "sale_bill"}
+        purchase_types = {"purchase_invoice", "purchase_bill"}
+        sales = [i for i in invoices if (i.documenttype or "").lower() in sales_types]
+        purchases = [i for i in invoices if (i.documenttype or "").lower() in purchase_types]
+
         total_sales = sum(float(i.totalvalue or 0) for i in sales)
         total_purchases = sum(float(i.totalvalue or 0) for i in purchases)
-        
-        obligations = self.db.query(ComplianceObligation).filter(ComplianceObligation.userid == self.user_id, ComplianceObligation.status != "filed").all()
-        
+        ranked_sales = sorted(sales, key=lambda i: float(i.totalvalue or 0), reverse=True)
+
         lines = [
-            f"Total Sales: ₹{total_sales:,.2f} ({len(sales)} invoices)",
-            f"Total Purchases: ₹{total_purchases:,.2f} ({len(purchases)} invoices)",
-            f"Open Compliance Obligations: {len(obligations)}"
+            f"Total sales: ₹{total_sales:,.2f} across {len(sales)} invoice(s).",
+            f"Total purchases: ₹{total_purchases:,.2f} across {len(purchases)} invoice(s).",
         ]
+        if ranked_sales:
+            top = ranked_sales[0]
+            lines.append(
+                "Highest sale: invoice "
+                f"{top.invoicenumber or '-'} to {top.partyname or 'unknown party'} "
+                f"for ₹{float(top.totalvalue or 0):,.2f} dated {top.invoicedate or '-'}."
+            )
+            lines.append("Sales invoices:")
+            for inv in ranked_sales[:8]:
+                lines.append(
+                    f"- {inv.invoicenumber or '-'} | {inv.invoicedate or '-'} | "
+                    f"{inv.partyname or '-'} | ₹{float(inv.totalvalue or 0):,.2f}"
+                )
+
+        obligations = self.db.query(ComplianceObligation).filter(
+            ComplianceObligation.userid == self.user_id,
+            ComplianceObligation.status != "filed",
+        ).all()
+        lines.append(f"Open compliance obligations: {len(obligations)}")
         for obs in obligations[:3]:
-            lines.append(f"- {obs.obligationtype} due on {obs.duedate} (Status: {obs.status})")
-            
+            lines.append(f"- {obs.obligationtype} due {obs.duedate} ({obs.status})")
+
         return "\n".join(lines)
 
     def get_tools_list(self):

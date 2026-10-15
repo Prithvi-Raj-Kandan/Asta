@@ -29,6 +29,7 @@ export function DashboardLayout({ children, userName, userEmail }: DashboardLayo
 
   const handleLogout = () => {
     localStorage.removeItem('auth_token');
+    localStorage.removeItem('asta_user');
     navigate('/');
   };
 
@@ -56,7 +57,7 @@ export function DashboardLayout({ children, userName, userEmail }: DashboardLayo
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 px-3 py-4 space-y-1">
+        <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-1">
           {menuItems.map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
@@ -83,7 +84,7 @@ export function DashboardLayout({ children, userName, userEmail }: DashboardLayo
         </nav>
 
         {/* Settings & Profile Links */}
-        <div className="px-3 py-2 space-y-1">
+        <div className="shrink-0 px-3 py-2 space-y-1 border-t border-gray-100">
           <button
             onClick={() => navigate('/profile')}
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
@@ -109,16 +110,25 @@ export function DashboardLayout({ children, userName, userEmail }: DashboardLayo
         </div>
 
         {/* User Profile */}
-        <div className="p-4 border-t border-gray-200 space-y-3">
-          <div className="flex items-center gap-3">
-            <Avatar>
-              <AvatarFallback className="bg-blue-600 text-white">
-                {userName.split(' ').map(n => n[0]).join('')}
+        <div className="shrink-0 p-4 border-t border-gray-200 space-y-3 bg-white">
+          <div className="flex items-center gap-3 min-w-0">
+            <Avatar className="size-10 shrink-0">
+              <AvatarFallback className="bg-blue-600 text-white text-sm font-medium">
+                {(userName || userEmail || 'U')
+                  .split(/[\s@._-]+/)
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((n) => n[0]?.toUpperCase())
+                  .join('') || 'U'}
               </AvatarFallback>
             </Avatar>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 truncate">{userName}</p>
-              <p className="text-xs text-gray-500 truncate">{userEmail}</p>
+              <p className="text-sm font-medium text-gray-900 truncate" title={userName || 'User'}>
+                {userName || 'User'}
+              </p>
+              <p className="text-xs text-gray-500 truncate" title={userEmail}>
+                {userEmail || 'Signed in'}
+              </p>
             </div>
           </div>
           <Button

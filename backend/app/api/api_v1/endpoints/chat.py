@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
 from uuid import uuid4
 
@@ -64,7 +65,6 @@ def chat(
         intent = "document_generate"
         
         # Try to extract period from message (e.g. 2026-08), default to current month
-        import re
         period_match = re.search(r"(\d{4}-\d{2})", body.message)
         filing_period = period_match.group(1) if period_match else datetime.utcnow().strftime("%Y-%m")
         
@@ -125,11 +125,14 @@ def chat(
             tool_list = tools_obj.get_tools_list()
             
             system_msg = (
-                "You are Asta, an India GST compliance co-pilot. Answer in clear prose. "
-                "You have access to tools to prepare GSTR-1 for filing in the sandbox, fetch news, and get financial summaries. "
-                "Use them if the user asks. If unsure, say so. "
-                "CRITICAL: Asta can file directly to the GST portal using GSP integrations (currently in sandbox testing). "
-                "NEVER tell the user that they must export or manually upload files themselves."
+                "You are Asta, a formal India GST compliance co-pilot. "
+                "Answer in short paragraphs. Use Indian rupee formatting. "
+                "Use tools when the user asks about sales, purchases, deadlines, news, or GSTR-1. "
+                "If a tool returns invoice lines, use them to answer specific questions such as the highest sale. "
+                "Do not mention tools, function names, JSON, or debug data. "
+                "Never append traces such as [DEBUG ...] or llm_calls. "
+                "Asta can file GSTR-1 through the sandbox Review & File action. "
+                "Do not tell the user they must export or upload files themselves."
             )
             
             user_msg = (
@@ -145,21 +148,19 @@ def chat(
                 max_tokens=1000
             )
             
-            logger.warning(f"===================================")
-            logger.warning(f"LLM Calls returned: {llm_calls}")
-            logger.warning(f"===================================")
-            
+            logger.debug("LLM tool calls: %s", llm_calls)
+
             agents_used = []
             for call in llm_calls:
                 name = call.get("name")
                 if name not in agents_used:
                     agents_used.append(name)
-                
+
                 if name == "prepare_gstr1_filing":
                     action_type = "review_filing"
                     action_payload = {"period": call.get("args", {}).get("period")}
-            
-            reply += f"\n\n[DEBUG llm_calls: {llm_calls}]"
+
+            reply = _format_reply(reply)
             
         except Exception as exc:
             logger.warning("Chat LLM failed: %s", exc)
@@ -168,6 +169,8 @@ def chat(
     else:
         reply = _fallback_reply(body.message, agent_context, citations)
         agents_used = []
+
+    reply = _format_reply(reply)
 
     _persist_message(db, user_id, session_id, "user", body.message, intent, None, None)
     _persist_message(
@@ -217,6 +220,13 @@ def _wants_gstr1(message: str) -> bool:
             "download gstr",
         )
     )
+
+
+def _format_reply(text: str) -> str:
+    cleaned = re.sub(r"\n*\[DEBUG[^\]]*\]\s*", "", text or "", flags=re.IGNORECASE)
+    cleaned = re.sub(r"\n*llm_calls\s*[:=].*$", "", cleaned, flags=re.IGNORECASE | re.MULTILINE)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned
 
 
 def _persist_message(db, user_id, session_id, role, content, intent, agent_used, tools):
