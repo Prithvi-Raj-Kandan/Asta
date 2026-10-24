@@ -37,37 +37,6 @@ An Indian manufacturer or trader files outward supplies on **GSTR-1** (commonly 
 
 Asta keeps that path inside one product: ingest the document, extract a GSTR-1-shaped draft, confirm it into PostgreSQL, score the open obligations, and hold the generated payload for a person to edit before Sandbox submission.
 
-## What the recorded session shows
-
-Figures below are what the attached dashboard, invoice book, tracker, and co-pilot displayed.
-
-| Surface | What was on screen |
-| --- | --- |
-| Compliance health | **78**, label **Needs Attention** |
-| Sales | **₹3,95,520** across **4 invoices** |
-| Alerts | GSTR-1 due **11 Nov 2026**, GSTR-3B due **20 Nov 2026**, IEC update due **30 Jun 2026** |
-| Books | Confirmed B2B sale, export invoice, and purchase invoice (rows below) |
-| Tracker | October 2026 GSTR-1 **Due Soon** (11 Nov 2026), GSTR-3B **Upcoming** (20 Nov 2026), LUT **Filed** |
-| Co-pilot | October 2026 GSTR-1 payload, then the **Review & File** drawer with **Approve & Submit** |
-
-Confirmed rows visible in the invoice book:
-
-| Invoice | Date | Type | Party | GSTIN | Place of supply | Total |
-| --- | --- | --- | --- | --- | --- | --- |
-| INV-2026-0842 | 12 Oct 2026 | B2B sale | Horizon Retail Pvt Ltd | 29AABCU9603R1ZM | Karnataka | ₹1,15,640 |
-| INV-2026-0847 | 18 Oct 2026 | Export | NovaForge GmbH | 27AADCN1234E1Z8 | Maharashtra | ₹1,82,900 |
-| PINV-2026-331 | 09 Oct 2026 | Purchase | SteelMart Industries | 33AABCS8891Q1Z4 | Tamil Nadu | ₹48,260 |
-
-The co-pilot’s October 2026 outward payload listed three rows. Their invoice values sum to the ₹3,95,520 sales total on the dashboard:
-
-| Party | GSTIN | Invoice | Value | GST % | Taxable value | Type |
-| --- | --- | --- | --- | --- | --- | --- |
-| Horizon Retail Pvt Ltd | 29AABCU9603R1ZM | INV-2026-0842 | ₹1,15,640 | 18 | ₹98,000 | B2B |
-| NovaForge GmbH | 27AADCN1234E1Z8 | INV-2026-0847 | ₹1,82,900 | 0 | ₹1,82,900 | Export |
-| MetroLink Systems | 29AAGCM5521P1Z2 | INV-2026-0851 | ₹96,980 | 18 | ₹82,186.44 | B2B |
-
-**Approve & Submit** in that drawer calls `POST /api/v1/filings/gstr1/sandbox-file`, which saves the rows to Sandbox.co.in and then files them with the returned `reference_id`.
-
 ## Architecture
 
 ```mermaid
